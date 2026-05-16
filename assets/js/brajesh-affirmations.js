@@ -152,6 +152,8 @@ const state = {
   selectedTheme: "random",
   randomThemeSelection: null,
   randomThemeSelectionCustomized: false,
+  randomThemeSelectionPreferenceId: null,
+  randomThemeSelectionPreferenceUpdatedAt: null,
   editorInputMode: "single",
   editingId: null,
   displayQueue: [],
@@ -163,6 +165,9 @@ const state = {
 };
 let pageLoadPromise = null;
 let pageReloadQueued = false;
+let randomThemeSelectionRemoteSyncPromise = null;
+let randomThemeSelectionRemoteSyncQueued = false;
+let randomThemeSelectionRemoteSyncSnapshot = null;
 
 const elements = {
   pageStatus: document.querySelector("#pageStatus"),
@@ -351,6 +356,69 @@ function canUseLocalStorage() {
   }
 }
 
+function normalizeRandomThemeSelectionPreference(value, fallbackUpdatedAt = null) {
+  const themes = Array.isArray(value)
+    ? value
+    : Array.isArray(value?.themes)
+      ? value.themes
+      : null;
+
+  if (!Array.isArray(themes)) {
+    return null;
+  }
+
+  const updatedAt = String(value?.updatedAt || fallbackUpdatedAt || "").trim() || null;
+
+  return {
+    customized: Array.isArray(value) ? true : Boolean(value?.customized),
+    themes: themes.map(slugify).filter(Boolean),
+    updatedAt,
+  };
+}
+
+function applyRandomThemeSelectionPreference(preference) {
+  if (!preference) {
+    return;
+  }
+
+  state.randomThemeSelection = [...preference.themes];
+  state.randomThemeSelectionCustomized = Boolean(preference.customized);
+  state.randomThemeSelectionPreferenceUpdatedAt = preference.updatedAt || null;
+}
+
+function getRandomThemeSelectionPreferenceTimestamp(value) {
+  return Date.parse(String(value || "").trim()) || 0;
+}
+
+function cloneRandomThemeSelectionPreference(preference) {
+  const normalized = normalizeRandomThemeSelectionPreference(preference);
+  if (!normalized) {
+    return null;
+  }
+
+  return {
+    customized: normalized.customized,
+    themes: [...normalized.themes],
+    updatedAt: normalized.updatedAt,
+  };
+}
+
+function getCurrentRandomThemeSelectionPreference() {
+  if (state.randomThemeSelection === null) {
+    return null;
+  }
+
+  return cloneRandomThemeSelectionPreference({
+    customized: state.randomThemeSelectionCustomized,
+    themes: Array.isArray(state.randomThemeSelection) ? state.randomThemeSelection : [],
+    updatedAt: state.randomThemeSelectionPreferenceUpdatedAt,
+  });
+}
+
+function touchRandomThemeSelectionPreference() {
+  state.randomThemeSelectionPreferenceUpdatedAt = new Date().toISOString();
+}
+
 function loadRandomThemeSelectionPreference() {
   if (!canUseLocalStorage()) {
     return;
@@ -362,23 +430,12 @@ function loadRandomThemeSelectionPreference() {
       return;
     }
 
-    const parsed = JSON.parse(raw);
-    const themes = Array.isArray(parsed)
-      ? parsed
-      : Array.isArray(parsed?.themes)
-        ? parsed.themes
-        : null;
-
-    if (!themes) {
+    const preference = normalizeRandomThemeSelectionPreference(JSON.parse(raw));
+    if (!preference) {
       return;
     }
 
-    state.randomThemeSelection = themes.map(slugify).filter(Boolean);
-    state.randomThemeSelectionCustomized = !Array.isArray(parsed) && Boolean(parsed?.customized);
-
-    if (Array.isArray(parsed)) {
-      state.randomThemeSelectionCustomized = true;
-    }
+    applyRandomThemeSelectionPreference(preference);
   } catch {
     // Ignore malformed saved preference and fall back to defaults.
   }
@@ -389,19 +446,16 @@ function persistRandomThemeSelectionPreference() {
     return;
   }
 
-  if (!state.randomThemeSelectionCustomized) {
-    window.localStorage.removeItem(RANDOM_THEME_SELECTION_STORAGE_KEY);
+  if (!state.randomThemeSelectionPreferenceUpdatedAt && state.randomThemeSelection !== null) {
+    touchRandomThemeSelectionPreference();
+  }
+
+  const preference = getCurrentRandomThemeSelectionPreference();
+  if (!preference) {
     return;
   }
 
-  const themes = Array.isArray(state.randomThemeSelection)
-    ? state.randomThemeSelection.map(slugify).filter(Boolean)
-    : [];
-
-  window.localStorage.setItem(RANDOM_THEME_SELECTION_STORAGE_KEY, JSON.stringify({
-    customized: true,
-    themes,
-  }));
+  window.localStorage.setItem(RANDOM_THEME_SELECTION_STORAGE_KEY, JSON.stringify(preference));
 }
 
 function getRandomThemeSelectionPreferenceTheme(userId = state.user?.id) {
@@ -415,68 +469,121 @@ function isRandomThemeSelectionPreferenceTheme(theme) {
 
 function parseRandomThemeSelectionPreferenceBody(body) {
   try {
-    const parsed = JSON.parse(String(body || ""));
-    const themes = Array.isArray(parsed)
-      ? parsed
-      : Array.isArray(parsed?.themes)
-        ? parsed.themes
-        : null;
-
-    return Array.isArray(themes)
-      ? themes.map(slugify).filter(Boolean)
-      : null;
+    return normalizeRandomThemeSelectionPreference(JSON.parse(String(body || "")));
   } catch {
     return null;
   }
 }
 
-async function persistRandomThemeSelectionPreferenceRemote() {
+async function persistRandomThemeSelectionPreferenceRemote(preference = getCurrentRandomThemeSelectionPreference()) {
   const preferenceTheme = getRandomThemeSelectionPreferenceTheme();
-  if (!preferenceTheme) {
+  const snapshot = cloneRandomThemeSelectionPreference(preference);
+  if (!preferenceTheme || !snapshot) {
     return;
   }
 
   try {
-    if (!state.randomThemeSelectionCustomized) {
-      const { error } = await db
-        .from("brajesh_affirmations")
-        .delete()
-        .eq("theme", preferenceTheme);
+    const preferenceBody = JSON.stringify(snapshot);
+    const payload = buildAffirmationPayload(preferenceBody, preferenceTheme);
+    const { data: existingRows, error: existingRowsError } = await db
+      .from("brajesh_affirmations")
+      .select("id, body, updated_at, created_at")
+      .eq("theme", preferenceTheme)
+      .order("updated_at", { ascending: false })
+      .order("created_at", { ascending: false });
 
-      if (error) {
-        throw error;
+    if (existingRowsError) {
+      throw existingRowsError;
+    }
+
+    const rows = existingRows || [];
+    const [latestRow, ...staleRows] = rows;
+
+    if (staleRows.length) {
+      const staleIds = staleRows.map((row) => row.id).filter(Boolean);
+      if (staleIds.length) {
+        const { error: deleteStaleError } = await db
+          .from("brajesh_affirmations")
+          .delete()
+          .in("id", staleIds);
+
+        if (deleteStaleError) {
+          throw deleteStaleError;
+        }
+      }
+    }
+
+    if (latestRow?.id) {
+      const latestPreference = parseRandomThemeSelectionPreferenceBody(latestRow.body);
+      const latestPreferenceTimestamp = getRandomThemeSelectionPreferenceTimestamp(
+        latestPreference?.updatedAt || latestRow.updated_at || latestRow.created_at,
+      );
+      const snapshotTimestamp = getRandomThemeSelectionPreferenceTimestamp(snapshot.updatedAt);
+
+      if (latestPreferenceTimestamp > snapshotTimestamp) {
+        state.randomThemeSelectionPreferenceId = latestRow.id;
+        return;
       }
 
+      const { error: updateError } = await db
+        .from("brajesh_affirmations")
+        .update(payload)
+        .eq("id", latestRow.id);
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      state.randomThemeSelectionPreferenceId = latestRow.id;
       return;
     }
 
-    const preferenceBody = JSON.stringify({
-      themes: Array.isArray(state.randomThemeSelection) ? state.randomThemeSelection : [],
-    });
-    const payload = buildAffirmationPayload(preferenceBody, preferenceTheme);
-    const { data: updatedRows, error: updateError } = await db
+    const { data: insertedRows, error: insertError } = await db
       .from("brajesh_affirmations")
-      .update(payload)
-      .eq("theme", preferenceTheme)
-      .select("id");
-
-    if (updateError) {
-      throw updateError;
-    }
-
-    if (updatedRows?.length) {
-      return;
-    }
-
-    const { error: insertError } = await db
-      .from("brajesh_affirmations")
-      .insert(payload);
+      .insert(payload)
+      .select("id")
+      .limit(1);
 
     if (insertError) {
       throw insertError;
     }
+
+    state.randomThemeSelectionPreferenceId = insertedRows?.[0]?.id || null;
   } catch (error) {
     setPageStatus(error.message || "Could not sync random theme selection across devices.", "error");
+  }
+}
+
+async function requestRandomThemeSelectionPreferenceRemoteSync(options = {}) {
+  const {
+    awaitCompletion = false,
+    preference = getCurrentRandomThemeSelectionPreference(),
+  } = options;
+
+  const snapshot = cloneRandomThemeSelectionPreference(preference);
+  if (!snapshot) {
+    return;
+  }
+
+  randomThemeSelectionRemoteSyncSnapshot = snapshot;
+  randomThemeSelectionRemoteSyncQueued = true;
+
+  if (!randomThemeSelectionRemoteSyncPromise) {
+    randomThemeSelectionRemoteSyncPromise = (async () => {
+      try {
+        while (randomThemeSelectionRemoteSyncQueued && randomThemeSelectionRemoteSyncSnapshot) {
+          randomThemeSelectionRemoteSyncQueued = false;
+          const nextSnapshot = randomThemeSelectionRemoteSyncSnapshot;
+          await persistRandomThemeSelectionPreferenceRemote(nextSnapshot);
+        }
+      } finally {
+        randomThemeSelectionRemoteSyncPromise = null;
+      }
+    })();
+  }
+
+  if (awaitCompletion) {
+    await randomThemeSelectionRemoteSyncPromise;
   }
 }
 
@@ -675,6 +782,32 @@ function getRandomThemeSummary() {
   }
 
   return `Random will use: ${selectedThemes.map(titleCase).join(", ")}`;
+}
+
+function comparePreferenceRowsByRecency(left, right) {
+  const leftTime = Date.parse(left?.updated_at || left?.created_at || "") || 0;
+  const rightTime = Date.parse(right?.updated_at || right?.created_at || "") || 0;
+  return rightTime - leftTime;
+}
+
+async function cleanupRandomThemeSelectionPreferenceRows(rows) {
+  const staleIds = rows.slice(1).map((row) => row.id).filter(Boolean);
+  if (!staleIds.length) {
+    return;
+  }
+
+  try {
+    const { error } = await db
+      .from("brajesh_affirmations")
+      .delete()
+      .in("id", staleIds);
+
+    if (error) {
+      throw error;
+    }
+  } catch (error) {
+    setPageStatus(error.message || "Could not clean up duplicate random theme preferences.", "error");
+  }
 }
 
 function getEmptyAffirmationsMessage(theme = state.selectedTheme) {
@@ -1133,8 +1266,9 @@ function renderControls() {
 
       state.randomThemeSelection = eligibleThemes.filter((item) => nextSelection.has(item));
       state.randomThemeSelectionCustomized = state.randomThemeSelection.length !== eligibleThemes.length;
+      touchRandomThemeSelectionPreference();
       persistRandomThemeSelectionPreference();
-      void persistRandomThemeSelectionPreferenceRemote();
+      void requestRandomThemeSelectionPreferenceRemoteSync();
       state.currentDisplayId = null;
       state.displaySequence = null;
       buildDisplayQueue();
@@ -1172,23 +1306,44 @@ async function loadAffirmations(options = {}) {
 
   const rows = data || [];
   const preferenceTheme = getRandomThemeSelectionPreferenceTheme();
-  const preferenceRow = preferenceTheme
-    ? rows.find((item) => item.theme === preferenceTheme)
-    : null;
-  const remoteThemes = preferenceRow
+  const preferenceRows = preferenceTheme
+    ? rows.filter((item) => item.theme === preferenceTheme).sort(comparePreferenceRowsByRecency)
+    : [];
+  const preferenceRow = preferenceRows[0] || null;
+  const localPreference = getCurrentRandomThemeSelectionPreference();
+  const remotePreference = preferenceRow
     ? parseRandomThemeSelectionPreferenceBody(preferenceRow.body)
     : null;
+  const normalizedRemotePreference = remotePreference
+    ? {
+      ...remotePreference,
+      updatedAt: remotePreference.updatedAt || preferenceRow.updated_at || preferenceRow.created_at || null,
+    }
+    : null;
+  const localTimestamp = getRandomThemeSelectionPreferenceTimestamp(localPreference?.updatedAt);
+  const remoteTimestamp = getRandomThemeSelectionPreferenceTimestamp(normalizedRemotePreference?.updatedAt);
+  let shouldSyncRemotePreference = false;
 
-  if (remoteThemes !== null) {
-    state.randomThemeSelection = remoteThemes;
-    state.randomThemeSelectionCustomized = true;
+  state.randomThemeSelectionPreferenceId = preferenceRow?.id || null;
+
+  if (normalizedRemotePreference && remoteTimestamp >= localTimestamp) {
+    applyRandomThemeSelectionPreference(normalizedRemotePreference);
+  } else if (localPreference) {
+    applyRandomThemeSelectionPreference(localPreference);
+    shouldSyncRemotePreference = true;
   }
 
   state.affirmations = rows.filter((item) => !isRandomThemeSelectionPreferenceTheme(item.theme));
   showApp();
   syncPageStateAfterLoad();
-  if (!preferenceRow && state.randomThemeSelectionCustomized) {
-    void persistRandomThemeSelectionPreferenceRemote();
+  if (preferenceRows.length > 1) {
+    void cleanupRandomThemeSelectionPreferenceRows(preferenceRows);
+  }
+  if (!preferenceRow && state.randomThemeSelection !== null) {
+    shouldSyncRemotePreference = true;
+  }
+  if (shouldSyncRemotePreference) {
+    await requestRandomThemeSelectionPreferenceRemoteSync({ awaitCompletion: true });
   }
   if (!options.silent) {
     setPageStatus("");
