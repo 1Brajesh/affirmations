@@ -1179,7 +1179,7 @@ async function loadAffirmations(options = {}) {
     ? parseRandomThemeSelectionPreferenceBody(preferenceRow.body)
     : null;
 
-  if (remoteThemes) {
+  if (remoteThemes !== null) {
     state.randomThemeSelection = remoteThemes;
     state.randomThemeSelectionCustomized = true;
   }
