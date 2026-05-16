@@ -7,6 +7,7 @@ import {
 
 const db = createBrajeshClient();
 const BUILTIN_THEMES = ["long"];
+const RANDOM_THEME_SELECTION_STORAGE_KEY = "brajesh_affirmations_random_theme_selection_v1";
 const DISPLAY_SKINS = [
   {
     id: "sunlit",
@@ -341,6 +342,67 @@ function getCurrentAppPathname() {
   return pathname.endsWith("/") ? pathname : `${pathname}/`;
 }
 
+function canUseLocalStorage() {
+  try {
+    return Boolean(window.localStorage);
+  } catch {
+    return false;
+  }
+}
+
+function loadRandomThemeSelectionPreference() {
+  if (!canUseLocalStorage()) {
+    return;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(RANDOM_THEME_SELECTION_STORAGE_KEY);
+    if (!raw) {
+      return;
+    }
+
+    const parsed = JSON.parse(raw);
+    const themes = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed?.themes)
+        ? parsed.themes
+        : null;
+
+    if (!themes) {
+      return;
+    }
+
+    state.randomThemeSelection = themes.map(slugify).filter(Boolean);
+    state.randomThemeSelectionCustomized = !Array.isArray(parsed) && Boolean(parsed?.customized);
+
+    if (Array.isArray(parsed)) {
+      state.randomThemeSelectionCustomized = true;
+    }
+  } catch {
+    // Ignore malformed saved preference and fall back to defaults.
+  }
+}
+
+function persistRandomThemeSelectionPreference() {
+  if (!canUseLocalStorage()) {
+    return;
+  }
+
+  if (!state.randomThemeSelectionCustomized) {
+    window.localStorage.removeItem(RANDOM_THEME_SELECTION_STORAGE_KEY);
+    return;
+  }
+
+  const themes = Array.isArray(state.randomThemeSelection)
+    ? state.randomThemeSelection.map(slugify).filter(Boolean)
+    : [];
+
+  window.localStorage.setItem(RANDOM_THEME_SELECTION_STORAGE_KEY, JSON.stringify({
+    customized: true,
+    themes,
+  }));
+}
+
 function splitMultiAddBodies(value) {
   return String(value || "")
     .split("//")
@@ -502,11 +564,14 @@ function syncRandomThemeSelection() {
 
   if (!state.randomThemeSelectionCustomized || state.randomThemeSelection === null) {
     state.randomThemeSelection = [...eligibleThemes];
+    persistRandomThemeSelectionPreference();
     return;
   }
 
   const selectedThemes = new Set(state.randomThemeSelection);
   state.randomThemeSelection = eligibleThemes.filter((theme) => selectedThemes.has(theme));
+  state.randomThemeSelectionCustomized = state.randomThemeSelection.length !== eligibleThemes.length;
+  persistRandomThemeSelectionPreference();
 }
 
 function getSelectedRandomThemes() {
@@ -991,6 +1056,7 @@ function renderControls() {
 
       state.randomThemeSelection = eligibleThemes.filter((item) => nextSelection.has(item));
       state.randomThemeSelectionCustomized = state.randomThemeSelection.length !== eligibleThemes.length;
+      persistRandomThemeSelectionPreference();
       state.currentDisplayId = null;
       state.displaySequence = null;
       buildDisplayQueue();
@@ -1872,6 +1938,7 @@ db.auth.onAuthStateChange((event) => {
 });
 
 updateIdentityUI();
+loadRandomThemeSelectionPreference();
 resetEditor({ keepStatus: true });
 setEditorStatus("Add a new affirmation or import a CSV.");
 setCSVStatus("CSV format: first column = affirmation, second column = theme.");
