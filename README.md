@@ -25,6 +25,8 @@ Repo: `https://github.com/1Brajesh/affirmations`
   - starter CSV for bulk import
 - `supabase/20260504123000_add_brajesh_affirmations.sql`
   - affirmations schema, normalization helpers, indexes, and RLS reference
+- `supabase/20260516150000_add_brajesh_user_preferences.sql`
+  - per-user preferences table for synced Random theme selections
 
 ## Deployment
 
@@ -58,10 +60,18 @@ Repo: `https://github.com/1Brajesh/affirmations`
   - `body_normalized`
   - `created_at`
   - `updated_at`
+- Table: `public.brajesh_user_preferences`
+- Main columns:
+  - `user_id`
+  - `random_theme_selection`
+  - `random_theme_selection_customized`
+  - `created_at`
+  - `updated_at`
 - DB uniqueness:
   - unique index on `(theme, body_normalized)`
 - RLS:
   - admin-only select/insert/update/delete
+  - user preferences are also admin-only, but each admin can only read and write their own preference row
 
 ## Main UI Areas
 
@@ -77,6 +87,7 @@ Repo: `https://github.com/1Brajesh/affirmations`
 - Built-in reserved theme:
   - `long`
 - `Random` display excludes `long`.
+- `Random` theme selections are now stored in `brajesh_user_preferences`, which is the source of truth across devices.
 - Duplicate prevention uses normalized `theme + body`.
 - CSV import accepts `affirmation,theme` or matching header synonyms.
 - `long` affirmations split by authored line breaks and play one line at a time.
@@ -141,3 +152,4 @@ When rehydrating this repo, read:
 3. `assets/js/brajesh-affirmations.js`
 4. `assets/js/brajesh-auth.js`
 5. `supabase/20260504123000_add_brajesh_affirmations.sql`
+6. `supabase/20260516150000_add_brajesh_user_preferences.sql`
