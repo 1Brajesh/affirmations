@@ -482,6 +482,23 @@
       text-transform: uppercase;
     }
 
+    .editor-mode-picker {
+      display: grid;
+      gap: 10px;
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .editor-mode-label {
+      color: var(--accent-strong);
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
     .list-meta {
       display: flex;
       flex-wrap: wrap;
@@ -985,8 +1002,13 @@
           </div>
 
           <form class="form-grid" id="affirmationForm">
+            <div class="editor-mode-picker">
+              <div class="editor-mode-label">Entry Mode</div>
+              <div class="pill-row" id="editorInputModeBar" aria-label="Entry mode selection"></div>
+            </div>
+
             <label>
-              Affirmation
+              <span id="editorBodyLabel">Affirmation</span>
               <textarea name="body" placeholder="I trust my own timing and move through life with calm conviction." required></textarea>
             </label>
 
@@ -1008,7 +1030,7 @@
             </div>
 
             <div class="launch-row">
-              <p>Choose <code>long</code> for multi-line pieces. In display mode, long affirmations reveal one line per tap.</p>
+              <p id="editorBodyHint">Choose <code>long</code> for multi-line pieces. In display mode, long affirmations reveal one line per tap.</p>
               <span class="button-cluster">
                 <button class="ghost-button" type="button" id="cancelEditButton" hidden>Cancel Edit</button>
                 <button class="primary-button" type="submit" id="saveAffirmationButton">Save Affirmation</button>

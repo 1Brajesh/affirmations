@@ -150,6 +150,7 @@ const state = {
   selectedTheme: "random",
   randomThemeSelection: null,
   randomThemeSelectionCustomized: false,
+  editorInputMode: "single",
   editingId: null,
   displayQueue: [],
   displayIndex: -1,
@@ -173,9 +174,12 @@ const elements = {
   form: document.querySelector("#affirmationForm"),
   saveAffirmationButton: document.querySelector("#saveAffirmationButton"),
   cancelEditButton: document.querySelector("#cancelEditButton"),
+  editorInputModeBar: document.querySelector("#editorInputModeBar"),
   editorModeBadge: document.querySelector("#editorModeBadge"),
   editorSummary: document.querySelector("#editorSummary"),
   editorStatus: document.querySelector("#editorStatus"),
+  editorBodyLabel: document.querySelector("#editorBodyLabel"),
+  editorBodyHint: document.querySelector("#editorBodyHint"),
   themeSelect: document.querySelector("#affirmationForm select[name='theme']"),
   csvFileInput: document.querySelector("#csvFileInput"),
   importCsvButton: document.querySelector("#importCsvButton"),
@@ -337,6 +341,17 @@ function getCurrentAppPathname() {
   return pathname.endsWith("/") ? pathname : `${pathname}/`;
 }
 
+function splitMultiAddBodies(value) {
+  return String(value || "")
+    .split("//")
+    .map((part) => cleanAffirmationBody(part))
+    .filter(Boolean);
+}
+
+function getPendingMultiAddCount(value = elements.form?.elements.body?.value || "") {
+  return splitMultiAddBodies(value).length;
+}
+
 function cleanAffirmationBody(value) {
   return String(value || "")
     .replace(/\r\n/g, "\n")
@@ -372,6 +387,105 @@ function getAffirmationKey(item) {
 
 function getAffirmationKeySet() {
   return new Set(state.affirmations.map(getAffirmationKey));
+}
+
+function getEditorIdleSaveLabel() {
+  if (state.editingId) {
+    return "Update Affirmation";
+  }
+
+  if (state.editorInputMode === "multi") {
+    const count = getPendingMultiAddCount();
+    return count > 0
+      ? `Save ${count} Affirmation${count === 1 ? "" : "s"}`
+      : "Save Affirmations";
+  }
+
+  return "Save Affirmation";
+}
+
+function renderEditorModePills() {
+  if (!elements.editorInputModeBar) {
+    return;
+  }
+
+  const modes = [
+    { value: "single", label: "Single Add" },
+    { value: "multi", label: "Multi Add" },
+  ];
+
+  elements.editorInputModeBar.innerHTML = modes.map((mode) => `
+    <button
+      class="theme-pill"
+      type="button"
+      data-editor-input-mode="${mode.value}"
+      aria-pressed="${String(state.editorInputMode === mode.value)}"
+    >${mode.label}</button>
+  `).join("");
+
+  elements.editorInputModeBar.querySelectorAll("[data-editor-input-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const nextMode = button.dataset.editorInputMode;
+      const currentTheme = elements.themeSelect.value || state.selectedTheme;
+
+      if (state.editorInputMode === nextMode) {
+        return;
+      }
+
+      state.editorInputMode = nextMode;
+
+      if (state.editingId) {
+        resetEditor({
+          keepTheme: currentTheme !== "random" ? currentTheme : undefined,
+          keepStatus: true,
+        });
+        setEditorStatus(`Exited edit mode. ${nextMode === "multi" ? "Multi add" : "Single add"} is ready.`, "ok");
+        return;
+      }
+
+      renderEditorState();
+    });
+  });
+}
+
+function renderEditorState() {
+  renderThemeOptions();
+  renderEditorModePills();
+
+  const isEditing = Boolean(state.editingId);
+  const isMultiAdd = state.editorInputMode === "multi" && !isEditing;
+
+  elements.cancelEditButton.hidden = !isEditing;
+  elements.editorModeBadge.textContent = isEditing
+    ? "Mode: Edit"
+    : isMultiAdd
+      ? "Mode: Multi Add"
+      : "Mode: Add";
+
+  elements.editorSummary.textContent = isEditing
+    ? "Editing an existing affirmation. Save to update it, or cancel to go back to add mode."
+    : isMultiAdd
+      ? "Paste many affirmations at once. Use // to separate entries while keeping line breaks inside each one."
+      : "Add a new affirmation or load an existing one into the form for editing.";
+
+  if (elements.editorBodyLabel) {
+    elements.editorBodyLabel.textContent = isMultiAdd ? "Affirmations" : "Affirmation";
+  }
+
+  if (elements.editorBodyHint) {
+    elements.editorBodyHint.innerHTML = isMultiAdd
+      ? 'Use <code>//</code> to separate affirmations. Line breaks inside each affirmation are preserved.'
+      : 'Choose <code>long</code> for multi-line pieces. In display mode, long affirmations reveal one line per tap.';
+  }
+
+  if (elements.form?.elements.body) {
+    elements.form.elements.body.placeholder = isMultiAdd
+      ? "I release what I cannot control. // I soften my jaw and let my shoulders drop. // I can feel tension and still stay safe."
+      : "I trust my own timing and move through life with calm conviction.";
+  }
+
+  elements.saveAffirmationButton.disabled = false;
+  elements.saveAffirmationButton.textContent = getEditorIdleSaveLabel();
 }
 
 function getThemes() {
@@ -689,7 +803,7 @@ function setLoginBusy(isBusy) {
 }
 
 function setSaveButtonBusy(isBusy) {
-  const idleText = state.editingId ? "Update Affirmation" : "Save Affirmation";
+  const idleText = getEditorIdleSaveLabel();
   elements.saveAffirmationButton.disabled = isBusy;
   elements.cancelEditButton.disabled = isBusy;
   elements.saveAffirmationButton.textContent = isBusy
@@ -705,17 +819,12 @@ function setImportExportBusy(isBusy) {
 function resetEditor(options = {}) {
   state.editingId = null;
   elements.form.reset();
-  renderThemeOptions();
 
   if (options.keepTheme && [...elements.themeSelect.options].some((option) => option.value === options.keepTheme)) {
     elements.themeSelect.value = options.keepTheme;
   }
 
-  elements.cancelEditButton.hidden = true;
-  elements.editorModeBadge.textContent = "Mode: Add";
-  elements.editorSummary.textContent = "Add a new affirmation or load an existing one into the form for editing.";
-  elements.saveAffirmationButton.textContent = "Save Affirmation";
-  elements.saveAffirmationButton.disabled = false;
+  renderEditorState();
 
   if (!options.keepStatus) {
     setEditorStatus("Add a new affirmation or import a CSV.");
@@ -726,17 +835,64 @@ function loadAffirmationIntoEditor(affirmationId) {
   const record = getAffirmationById(affirmationId);
   if (!record) return;
 
+  state.editorInputMode = "single";
   state.editingId = record.id;
   elements.form.elements.body.value = record.body;
-  renderThemeOptions();
+  renderEditorState();
   elements.form.elements.theme.value = record.theme;
   elements.form.elements.newTheme.value = "";
-  elements.cancelEditButton.hidden = false;
-  elements.editorModeBadge.textContent = "Mode: Edit";
-  elements.editorSummary.textContent = "Editing an existing affirmation. Save to update it, or cancel to go back to add mode.";
-  elements.saveAffirmationButton.textContent = "Update Affirmation";
   setEditorStatus(`Loaded ${titleCase(record.theme)} affirmation for editing.`, "ok");
   elements.form.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+async function saveMultiAffirmations(text, targetTheme) {
+  const bodies = splitMultiAddBodies(text);
+
+  if (!bodies.length) {
+    throw new Error("Add at least one affirmation. Use // to separate multiple affirmations.");
+  }
+
+  const keySet = getAffirmationKeySet();
+  const payloads = [];
+  let duplicates = 0;
+
+  bodies.forEach((body) => {
+    const payload = buildAffirmationPayload(body, targetTheme);
+    const key = `${payload.theme}::${payload.body_normalized}`;
+
+    if (keySet.has(key)) {
+      duplicates += 1;
+      return;
+    }
+
+    keySet.add(key);
+    payloads.push(payload);
+  });
+
+  let added = 0;
+
+  if (payloads.length) {
+    const { data, error } = await db
+      .from("brajesh_affirmations")
+      .upsert(payloads, {
+        onConflict: "theme,body_normalized",
+        ignoreDuplicates: true,
+      })
+      .select("id");
+
+    if (error) {
+      throw error;
+    }
+
+    added = data?.length || payloads.length;
+    duplicates += Math.max(0, payloads.length - added);
+  }
+
+  return {
+    added,
+    duplicates,
+    theme: payloads[0]?.theme || slugify(targetTheme),
+  };
 }
 
 function syncPageStateAfterLoad() {
@@ -756,6 +912,7 @@ function syncPageStateAfterLoad() {
     state.displaySequence = null;
   }
 
+  renderEditorState();
   renderControls();
   renderLibrary();
 }
@@ -1492,6 +1649,22 @@ elements.form.addEventListener("submit", async (event) => {
       await loadAffirmations({ silent: true });
       resetEditor({ keepTheme: payload.theme, keepStatus: true });
       setEditorStatus(`Updated ${titleCase(payload.theme)} affirmation.`, "ok");
+    } else if (state.editorInputMode === "multi") {
+      const { added, duplicates, theme } = await saveMultiAffirmations(data.get("body"), targetTheme);
+
+      state.selectedTheme = theme;
+      await loadAffirmations({ silent: true });
+      resetEditor({ keepTheme: theme, keepStatus: true });
+
+      if (added && duplicates) {
+        setEditorStatus(`Saved ${added} new ${titleCase(theme)} affirmation${added === 1 ? "" : "s"} and skipped ${duplicates} duplicate${duplicates === 1 ? "" : "s"}.`, "ok");
+      } else if (added) {
+        setEditorStatus(`Saved ${added} new ${titleCase(theme)} affirmation${added === 1 ? "" : "s"}.`, "ok");
+      } else if (duplicates) {
+        setEditorStatus(`Skipped ${duplicates} duplicate ${titleCase(theme)} affirmation${duplicates === 1 ? "" : "s"}.`, "warn");
+      } else {
+        setEditorStatus("No affirmations were saved.", "warn");
+      }
     } else {
       const { error } = await db
         .from("brajesh_affirmations")
@@ -1512,6 +1685,12 @@ elements.form.addEventListener("submit", async (event) => {
     }
   } finally {
     setSaveButtonBusy(false);
+  }
+});
+
+elements.form.elements.body.addEventListener("input", () => {
+  if (!state.editingId && state.editorInputMode === "multi") {
+    elements.saveAffirmationButton.textContent = getEditorIdleSaveLabel();
   }
 });
 
