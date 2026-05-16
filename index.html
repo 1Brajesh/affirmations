@@ -633,6 +633,22 @@
       gap: 10px;
     }
 
+    .display-counter-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 38px;
+      min-width: 54px;
+      padding: 0 12px;
+      border-radius: 999px;
+      border: 1px solid var(--display-surface-border);
+      background: var(--display-surface);
+      color: var(--display-surface-text);
+      font-size: 0.88rem;
+      font-variant-numeric: tabular-nums;
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.02);
+    }
+
     .display-mode .ghost-button,
     .display-mode .theme-pill {
       background: var(--display-surface);
@@ -1051,6 +1067,7 @@
             <path d="M17 4v12"></path>
           </svg>
         </button>
+        <span class="display-counter-badge" id="longDisplayCounter" hidden aria-live="polite">1/1</span>
         <button class="ghost-button" type="button" id="exitDisplay">Exit</button>
       </div>
     </div>

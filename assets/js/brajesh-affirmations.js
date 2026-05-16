@@ -205,6 +205,7 @@ const elements = {
   displayProgressLabel: document.querySelector("#displayProgressLabel"),
   startDisplay: document.querySelector("#startDisplay"),
   skipDisplay: document.querySelector("#skipDisplay"),
+  longDisplayCounter: document.querySelector("#longDisplayCounter"),
   exitDisplay: document.querySelector("#exitDisplay"),
 };
 let displayFitFrame = 0;
@@ -1126,9 +1127,18 @@ function syncDisplayControls() {
     return;
   }
 
+  const currentItem = getCurrentDisplayAffirmation();
   const canSkip = hasSkippableLongSequence();
+  const showLongCounter = Boolean(elements.longDisplayCounter && currentItem && isLongAffirmation(currentItem) && state.displayQueue.length);
   elements.skipDisplay.hidden = !canSkip;
   elements.skipDisplay.disabled = !canSkip;
+
+  if (elements.longDisplayCounter) {
+    elements.longDisplayCounter.hidden = !showLongCounter;
+    if (showLongCounter) {
+      elements.longDisplayCounter.textContent = `${state.displayIndex + 1}/${state.displayQueue.length}`;
+    }
+  }
 }
 
 function updateDisplayProgress(stepIndex, totalSteps, label = "Line", options = {}) {
