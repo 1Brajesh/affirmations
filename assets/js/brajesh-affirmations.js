@@ -148,6 +148,8 @@ const state = {
   user: null,
   affirmations: [],
   selectedTheme: "random",
+  randomThemeSelection: null,
+  randomThemeSelectionCustomized: false,
   editingId: null,
   displayQueue: [],
   displayIndex: -1,
@@ -181,6 +183,9 @@ const elements = {
   csvStatus: document.querySelector("#csvStatus"),
   affirmationList: document.querySelector("#affirmationList"),
   themeFilterBar: document.querySelector("#themeFilterBar"),
+  randomThemePicker: document.querySelector("#randomThemePicker"),
+  randomThemeBar: document.querySelector("#randomThemeBar"),
+  randomThemeSummary: document.querySelector("#randomThemeSummary"),
   displayThemeBar: document.querySelector("#displayThemeBar"),
   selectedThemeBadge: document.querySelector("#selectedThemeBadge"),
   previewThemeBadge: document.querySelector("#previewThemeBadge"),
@@ -373,27 +378,88 @@ function getThemes() {
   return ["random", ...themes];
 }
 
+function getRandomEligibleThemes() {
+  return getThemes().filter((theme) => theme !== "random" && theme !== "long");
+}
+
+function syncRandomThemeSelection() {
+  const eligibleThemes = getRandomEligibleThemes();
+
+  if (!state.randomThemeSelectionCustomized || state.randomThemeSelection === null) {
+    state.randomThemeSelection = [...eligibleThemes];
+    return;
+  }
+
+  const selectedThemes = new Set(state.randomThemeSelection);
+  state.randomThemeSelection = eligibleThemes.filter((theme) => selectedThemes.has(theme));
+}
+
+function getSelectedRandomThemes() {
+  const eligibleThemes = getRandomEligibleThemes();
+
+  if (state.randomThemeSelection === null) {
+    return eligibleThemes;
+  }
+
+  const selectedThemes = new Set(state.randomThemeSelection);
+  return eligibleThemes.filter((theme) => selectedThemes.has(theme));
+}
+
+function getRandomThemeSummary() {
+  const eligibleThemes = getRandomEligibleThemes();
+  const selectedThemes = getSelectedRandomThemes();
+
+  if (!eligibleThemes.length) {
+    return "No short themes are available for Random yet.";
+  }
+
+  if (!selectedThemes.length) {
+    return "Pick at least one short theme for Random.";
+  }
+
+  return `Random will use: ${selectedThemes.map(titleCase).join(", ")}`;
+}
+
+function getEmptyAffirmationsMessage(theme = state.selectedTheme) {
+  if (theme !== "random") {
+    return "No affirmations in this theme yet.";
+  }
+
+  if (!getRandomEligibleThemes().length) {
+    return "No short themes are available for Random yet.";
+  }
+
+  if (!getSelectedRandomThemes().length) {
+    return "Pick at least one short theme for Random.";
+  }
+
+  return "No affirmations in the selected Random themes yet.";
+}
+
 function getFilteredAffirmations(theme = state.selectedTheme) {
   if (theme === "random") {
-    return [...state.affirmations];
+    const selectedThemes = new Set(getSelectedRandomThemes());
+    return state.affirmations.filter((item) => selectedThemes.has(item.theme));
   }
 
   return state.affirmations.filter((item) => item.theme === theme);
 }
 
 function getDisplayAffirmations(theme = state.selectedTheme) {
-  const rows = getFilteredAffirmations(theme);
-
-  if (theme === "random") {
-    return rows.filter((item) => item.theme !== "long");
-  }
-
-  return rows;
+  return getFilteredAffirmations(theme);
 }
 
 function getThemeSummary(theme = state.selectedTheme) {
   if (theme === "random") {
-    return "Showing affirmations from every short theme. Long stays separate.";
+    if (!getRandomEligibleThemes().length) {
+      return "No short themes are available for Random yet.";
+    }
+
+    if (!getSelectedRandomThemes().length) {
+      return "Pick at least one short theme for Random.";
+    }
+
+    return "Showing a mix from your selected Random themes. Long stays separate.";
   }
 
   if (theme === "long") {
@@ -565,6 +631,24 @@ function renderThemePills(target, currentTheme, onSelect) {
   });
 }
 
+function renderRandomThemePills(target, selectedThemes, onToggle) {
+  const themes = getRandomEligibleThemes();
+  const selectedSet = new Set(selectedThemes);
+
+  target.innerHTML = themes.map((theme) => `
+    <button
+      class="theme-pill is-included"
+      type="button"
+      data-random-theme="${theme}"
+      aria-pressed="${String(selectedSet.has(theme))}"
+    >${getThemeLabel(theme)}</button>
+  `).join("");
+
+  target.querySelectorAll("[data-random-theme]").forEach((button) => {
+    button.addEventListener("click", () => onToggle(button.dataset.randomTheme));
+  });
+}
+
 function showLogin() {
   elements.loginPanel.hidden = false;
   elements.appShell.hidden = true;
@@ -655,6 +739,7 @@ function loadAffirmationIntoEditor(affirmationId) {
 }
 
 function syncPageStateAfterLoad() {
+  syncRandomThemeSelection();
   const themes = getThemes();
 
   if (state.selectedTheme !== "random" && !themes.includes(state.selectedTheme)) {
@@ -687,11 +772,11 @@ function renderLibrary() {
   }
 
   if (elements.previewQuote) {
-    elements.previewQuote.textContent = (rows[0] || state.affirmations[0] || {}).body || "No affirmations yet.";
+    elements.previewQuote.textContent = rows[0]?.body || getEmptyAffirmationsMessage();
   }
 
   if (!rows.length) {
-    elements.affirmationList.innerHTML = '<div class="empty">No affirmations in this theme yet.</div>';
+    elements.affirmationList.innerHTML = `<div class="empty">${escapeHtml(getEmptyAffirmationsMessage())}</div>`;
     return;
   }
 
@@ -728,6 +813,44 @@ function renderControls() {
     renderLibrary();
     renderDisplayItem(getCurrentDisplayAffirmation());
   });
+
+  const selectedRandomThemes = getSelectedRandomThemes();
+
+  if (elements.randomThemePicker) {
+    elements.randomThemePicker.hidden = state.selectedTheme !== "random";
+  }
+
+  if (elements.randomThemeBar) {
+    renderRandomThemePills(elements.randomThemeBar, selectedRandomThemes, (theme) => {
+      const nextSelection = new Set(getSelectedRandomThemes());
+      const eligibleThemes = getRandomEligibleThemes();
+
+      if (nextSelection.has(theme)) {
+        nextSelection.delete(theme);
+      } else {
+        nextSelection.add(theme);
+      }
+
+      state.randomThemeSelection = eligibleThemes.filter((item) => nextSelection.has(item));
+      state.randomThemeSelectionCustomized = state.randomThemeSelection.length !== eligibleThemes.length;
+      state.currentDisplayId = null;
+      state.displaySequence = null;
+      buildDisplayQueue();
+      renderControls();
+      renderLibrary();
+      renderDisplayItem(getCurrentDisplayAffirmation());
+    });
+  }
+
+  if (elements.randomThemeSummary) {
+    elements.randomThemeSummary.textContent = getRandomThemeSummary();
+  }
+
+  const canStartDisplay = getDisplayAffirmations().length > 0;
+  elements.startDisplay.disabled = !canStartDisplay;
+  if (elements.startDisplayTop) {
+    elements.startDisplayTop.disabled = !canStartDisplay;
+  }
 }
 
 async function loadAffirmations(options = {}) {
@@ -1053,8 +1176,9 @@ function renderDisplayItem(item, options = {}) {
   if (!item) {
     state.displaySequence = null;
     state.currentDisplayId = null;
-    elements.displayText.textContent = "No affirmations in this theme yet.";
-    elements.displayAnnouncer.textContent = "No affirmations available.";
+    const emptyMessage = getEmptyAffirmationsMessage();
+    elements.displayText.textContent = emptyMessage;
+    elements.displayAnnouncer.textContent = emptyMessage;
     hideDisplayProgress();
     syncDisplayControls();
     scheduleDisplayFit();
