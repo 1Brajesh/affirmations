@@ -650,6 +650,19 @@
       gap: 10px;
     }
 
+    .display-theme-badge {
+      display: none;
+      align-items: center;
+      min-height: 38px;
+      padding: 0 14px;
+      border-radius: 999px;
+      border: 1px solid var(--display-surface-border);
+      background: var(--display-surface);
+      color: var(--display-surface-text);
+      font-size: 0.92rem;
+      box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.02);
+    }
+
     .display-counter-badge {
       display: inline-flex;
       align-items: center;
@@ -895,6 +908,17 @@
         width: auto;
       }
 
+      #displayThemeBar,
+      .skip-display-button,
+      #longDisplayCounter,
+      #displayFooter {
+        display: none !important;
+      }
+
+      .display-theme-badge {
+        display: inline-flex;
+      }
+
       .display-text {
         width: 100%;
         letter-spacing: 0;
@@ -1081,6 +1105,7 @@
   <section class="display-mode" id="displayMode" hidden>
     <div class="display-bar">
       <div class="pill-row" id="displayThemeBar" aria-label="Display theme selection"></div>
+      <span class="display-theme-badge" id="currentDisplayTheme" aria-live="polite">Random</span>
       <div class="display-actions">
         <button class="ghost-button skip-display-button" type="button" id="skipDisplay" hidden aria-label="Skip to next long affirmation" title="Skip to next long affirmation">
           <svg viewBox="0 0 20 20" aria-hidden="true" focusable="false">
@@ -1113,6 +1138,6 @@
   </section>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script type="module" src="./assets/js/brajesh-affirmations.js?v=20260516a"></script>
+  <script type="module" src="./assets/js/brajesh-affirmations.js?v=20260521a"></script>
 </body>
 </html>

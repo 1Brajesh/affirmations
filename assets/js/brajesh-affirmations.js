@@ -211,6 +211,7 @@ const elements = {
   displayFooter: document.querySelector("#displayFooter"),
   displayProgressFill: document.querySelector("#displayProgressFill"),
   displayProgressLabel: document.querySelector("#displayProgressLabel"),
+  currentDisplayTheme: document.querySelector("#currentDisplayTheme"),
   startDisplay: document.querySelector("#startDisplay"),
   skipDisplay: document.querySelector("#skipDisplay"),
   longDisplayCounter: document.querySelector("#longDisplayCounter"),
@@ -1402,6 +1403,15 @@ function hideDisplayProgress() {
   elements.displayProgressLabel.textContent = "";
 }
 
+function syncCurrentDisplayTheme(item = null) {
+  if (!elements.currentDisplayTheme) {
+    return;
+  }
+
+  const theme = item?.theme || state.selectedTheme;
+  elements.currentDisplayTheme.textContent = getThemeLabel(theme);
+}
+
 function syncDisplayControls() {
   if (!elements.skipDisplay) {
     return;
@@ -1467,6 +1477,7 @@ function renderDisplayItem(item, options = {}) {
     state.displaySequence = null;
     state.currentDisplayId = null;
     const emptyMessage = getEmptyAffirmationsMessage();
+    syncCurrentDisplayTheme();
     elements.displayText.textContent = emptyMessage;
     elements.displayAnnouncer.textContent = emptyMessage;
     hideDisplayProgress();
@@ -1476,6 +1487,7 @@ function renderDisplayItem(item, options = {}) {
   }
 
   state.currentDisplayId = item.id;
+  syncCurrentDisplayTheme(item);
 
   if (isLongAffirmation(item)) {
     const steps = getLongAffirmationSteps(item.body);
