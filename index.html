@@ -925,6 +925,19 @@
       }
     }
 
+    @media (orientation: landscape) and (max-height: 520px) and (pointer: coarse) {
+      #displayThemeBar,
+      .skip-display-button,
+      #longDisplayCounter,
+      #displayFooter {
+        display: none !important;
+      }
+
+      .display-theme-badge {
+        display: inline-flex;
+      }
+    }
+
     @media (max-width: 520px) {
       .display-mode {
         grid-template-rows: auto 1fr auto;
@@ -1138,6 +1151,6 @@
   </section>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script type="module" src="./assets/js/brajesh-affirmations.js?v=20260521a"></script>
+  <script type="module" src="./assets/js/brajesh-affirmations.js?v=20260521b"></script>
 </body>
 </html>
