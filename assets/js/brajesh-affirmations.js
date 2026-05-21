@@ -1508,20 +1508,12 @@ function renderDisplayItem(item, options = {}) {
   scheduleDisplayFit();
 }
 
-function buildDisplayQueue(startItem = null) {
-  const rows = startItem
-    ? getDisplayAffirmations(startItem.theme)
-    : getDisplayAffirmations();
+function buildDisplayQueue() {
+  const rows = getDisplayAffirmations();
 
   if (!rows.length) {
     state.displayQueue = [];
     state.displayIndex = -1;
-    return;
-  }
-
-  if (startItem) {
-    state.displayQueue = [startItem, ...shuffle(rows.filter((item) => item.id !== startItem.id))];
-    state.displayIndex = 0;
     return;
   }
 
@@ -1649,7 +1641,7 @@ function skipCurrentAffirmation() {
   renderDisplayItem(getNextAffirmation());
 }
 
-function openDisplayMode(startItem = null) {
+function openDisplayMode() {
   elements.displayMode.hidden = false;
   document.body.style.overflow = "hidden";
   state.displayQueue = [];
@@ -1657,14 +1649,8 @@ function openDisplayMode(startItem = null) {
   state.currentDisplayId = null;
   state.displaySequence = null;
   applyDisplaySkin();
-
-  if (startItem) {
-    buildDisplayQueue(startItem);
-    renderDisplayItem(getCurrentDisplayAffirmation());
-  } else {
-    buildDisplayQueue();
-    renderDisplayItem(getCurrentDisplayAffirmation());
-  }
+  buildDisplayQueue();
+  renderDisplayItem(getCurrentDisplayAffirmation());
 
   elements.displayBody.focus();
   if (document.fonts?.ready) {
@@ -1866,7 +1852,7 @@ elements.affirmationList.addEventListener("click", async (event) => {
     state.selectedTheme = record.theme;
     renderControls();
     renderLibrary();
-    openDisplayMode(record);
+    openDisplayMode();
     return;
   }
 
