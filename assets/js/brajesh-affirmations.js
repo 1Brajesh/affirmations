@@ -149,6 +149,7 @@ const state = {
   user: null,
   affirmations: [],
   selectedTheme: "random",
+  editorTheme: "personal",
   randomThemeSelection: null,
   randomThemeSelectionCustomized: false,
   editorInputMode: "single",
@@ -334,6 +335,22 @@ function slugify(value) {
 
 function getThemeLabel(theme) {
   return theme === "random" ? "Random" : titleCase(theme);
+}
+
+function rememberEditorTheme(theme) {
+  const cleanTheme = slugify(theme);
+
+  if (cleanTheme && cleanTheme !== "random") {
+    state.editorTheme = cleanTheme;
+  }
+}
+
+function setSelectedTheme(theme) {
+  state.selectedTheme = theme;
+
+  if (!state.editingId && theme !== "random") {
+    rememberEditorTheme(theme);
+  }
 }
 
 function getCurrentAppPathname() {
@@ -812,23 +829,27 @@ function getWrappedDisplayIndex(index) {
 function renderThemeOptions() {
   const themes = getThemes().filter((theme) => theme !== "random");
   const availableThemes = [...new Set(["personal", ...themes])];
-  const currentValue = elements.themeSelect.value;
+  const currentValue = slugify(elements.themeSelect.value);
+  const preferredTheme = state.editingId ? currentValue : slugify(state.editorTheme);
 
   elements.themeSelect.innerHTML = availableThemes.map((theme) => `
     <option value="${theme}">${titleCase(theme)}</option>
   `).join("");
 
-  if (availableThemes.includes(currentValue)) {
-    elements.themeSelect.value = currentValue;
+  if (availableThemes.includes(preferredTheme)) {
+    elements.themeSelect.value = preferredTheme;
+    rememberEditorTheme(preferredTheme);
     return;
   }
 
-  if (availableThemes.includes(state.selectedTheme)) {
-    elements.themeSelect.value = state.selectedTheme;
+  if (availableThemes.includes(currentValue)) {
+    elements.themeSelect.value = currentValue;
+    rememberEditorTheme(currentValue);
     return;
   }
 
   elements.themeSelect.value = availableThemes[0];
+  rememberEditorTheme(availableThemes[0]);
 }
 
 function renderThemePills(target, currentTheme, onSelect) {
@@ -924,6 +945,7 @@ function resetEditor(options = {}) {
 
   if (options.keepTheme && [...elements.themeSelect.options].some((option) => option.value === options.keepTheme)) {
     elements.themeSelect.value = options.keepTheme;
+    rememberEditorTheme(options.keepTheme);
   }
 
   renderEditorState();
@@ -1059,13 +1081,13 @@ function renderControls() {
   renderThemeOptions();
 
   renderThemePills(elements.themeFilterBar, state.selectedTheme, (theme) => {
-    state.selectedTheme = theme;
+    setSelectedTheme(theme);
     renderControls();
     renderLibrary();
   });
 
   renderThemePills(elements.displayThemeBar, state.selectedTheme, (theme) => {
-    state.selectedTheme = theme;
+    setSelectedTheme(theme);
     state.currentDisplayId = null;
     state.displaySequence = null;
     buildDisplayQueue();
@@ -1767,14 +1789,14 @@ elements.form.addEventListener("submit", async (event) => {
 
       if (error) throw error;
 
-      state.selectedTheme = payload.theme;
+      setSelectedTheme(payload.theme);
       await loadAffirmations({ silent: true });
       resetEditor({ keepTheme: payload.theme, keepStatus: true });
       setEditorStatus(`Updated ${titleCase(payload.theme)} affirmation.`, "ok");
     } else if (state.editorInputMode === "multi") {
       const { added, duplicates, theme } = await saveMultiAffirmations(data.get("body"), targetTheme);
 
-      state.selectedTheme = theme;
+      setSelectedTheme(theme);
       await loadAffirmations({ silent: true });
       resetEditor({ keepTheme: theme, keepStatus: true });
 
@@ -1794,7 +1816,7 @@ elements.form.addEventListener("submit", async (event) => {
 
       if (error) throw error;
 
-      state.selectedTheme = payload.theme;
+      setSelectedTheme(payload.theme);
       await loadAffirmations({ silent: true });
       resetEditor({ keepTheme: payload.theme, keepStatus: true });
       setEditorStatus(`Saved a new ${titleCase(payload.theme)} affirmation.`, "ok");
@@ -1814,6 +1836,14 @@ elements.form.elements.body.addEventListener("input", () => {
   if (!state.editingId && state.editorInputMode === "multi") {
     elements.saveAffirmationButton.textContent = getEditorIdleSaveLabel();
   }
+});
+
+elements.themeSelect.addEventListener("change", (event) => {
+  if (state.editingId) {
+    return;
+  }
+
+  rememberEditorTheme(event.currentTarget.value);
 });
 
 elements.cancelEditButton.addEventListener("click", () => {
@@ -1849,7 +1879,7 @@ elements.affirmationList.addEventListener("click", async (event) => {
   if (!record) return;
 
   if (target.dataset.action === "display-affirmation") {
-    state.selectedTheme = record.theme;
+    setSelectedTheme(record.theme);
     renderControls();
     renderLibrary();
     openDisplayMode();
