@@ -227,6 +227,13 @@
       --plate-glow: rgba(130, 208, 173, 0.16);
     }
 
+    @media (min-width: 1121px) {
+      .panel-library {
+        grid-template-rows: auto auto minmax(0, 1fr);
+        align-content: start;
+      }
+    }
+
     .panel-display h2,
     .panel-display .badge {
       color: #f5ddaf;
@@ -531,7 +538,9 @@
     .affirmation-list {
       display: grid;
       gap: 12px;
+      min-height: 0;
       max-height: 720px;
+      align-content: start;
       overflow: auto;
       padding-right: 4px;
     }
