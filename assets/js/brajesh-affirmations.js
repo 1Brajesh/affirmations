@@ -367,15 +367,24 @@ function createThemeRecord(value) {
   }
 
   const defaultDefinition = DEFAULT_THEME_DEFINITIONS.find((theme) => theme.slug === slug);
+  const explicitDisplayName = normalizeThemeDisplayName(value?.display_name || value?.displayName);
+  const explicitSortOrderRaw = value?.sort_order ?? value?.sortOrder;
+  const explicitSortOrder = explicitSortOrderRaw === undefined || explicitSortOrderRaw === null
+    ? null
+    : Number(explicitSortOrderRaw);
+  const hasExplicitReserved = value?.is_reserved !== undefined || value?.isReserved !== undefined;
   return {
     id: value?.id || null,
     slug,
-    displayName: normalizeThemeDisplayName(value?.display_name || value?.displayName)
-      || defaultDefinition?.displayName
-      || titleCase(slug),
+    displayName: explicitDisplayName || defaultDefinition?.displayName || titleCase(slug),
     isReserved: Boolean(value?.is_reserved ?? value?.isReserved ?? defaultDefinition?.isReserved),
-    sortOrder: Number(value?.sort_order ?? value?.sortOrder ?? defaultDefinition?.sortOrder ?? 500),
+    sortOrder: Number.isFinite(explicitSortOrder)
+      ? explicitSortOrder
+      : Number(defaultDefinition?.sortOrder ?? 500),
     updatedAt: value?.updated_at || value?.updatedAt || null,
+    hasExplicitDisplayName: Boolean(explicitDisplayName),
+    hasExplicitReserved,
+    hasExplicitSortOrder: Number.isFinite(explicitSortOrder),
   };
 }
 
@@ -412,9 +421,15 @@ function mergeThemeRecords(...collections) {
       ...existing,
       ...record,
       id: record.id || existing.id,
-      displayName: record.displayName || existing.displayName,
-      isReserved: Boolean(record.isReserved || existing.isReserved),
-      sortOrder: Number.isFinite(record.sortOrder) ? record.sortOrder : existing.sortOrder,
+      displayName: record.hasExplicitDisplayName || !existing.displayName
+        ? record.displayName
+        : existing.displayName,
+      isReserved: record.hasExplicitReserved
+        ? Boolean(record.isReserved)
+        : Boolean(existing.isReserved),
+      sortOrder: record.hasExplicitSortOrder || !Number.isFinite(existing.sortOrder)
+        ? record.sortOrder
+        : existing.sortOrder,
       updatedAt: record.updatedAt || existing.updatedAt,
     });
   });
