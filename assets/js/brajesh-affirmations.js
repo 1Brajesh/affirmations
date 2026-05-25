@@ -206,6 +206,11 @@ const elements = {
   importCsvButton: document.querySelector("#importCsvButton"),
   exportCsvButton: document.querySelector("#exportCsvButton"),
   csvStatus: document.querySelector("#csvStatus"),
+  workspace: document.querySelector("#appShell .workspace"),
+  workspaceStack: document.querySelector("#appShell .workspace .stack"),
+  libraryPanel: document.querySelector("#appShell .panel-library"),
+  librarySectionHead: document.querySelector("#appShell .panel-library .section-head"),
+  libraryMeta: document.querySelector("#appShell .panel-library .list-meta"),
   affirmationList: document.querySelector("#affirmationList"),
   themeFilterBar: document.querySelector("#themeFilterBar"),
   randomThemePicker: document.querySelector("#randomThemePicker"),
@@ -235,6 +240,7 @@ const elements = {
   exitDisplay: document.querySelector("#exitDisplay"),
 };
 let displayFitFrame = 0;
+let libraryRailFitFrame = 0;
 let displayTouchStart = null;
 let suppressDisplayClickUntil = 0;
 
@@ -259,6 +265,68 @@ function scheduleDisplayFit() {
       displayFitFrame = 0;
       fitDisplayText();
     });
+  });
+}
+
+function clearLibraryRailSizing() {
+  if (!elements.libraryPanel || !elements.affirmationList) {
+    return;
+  }
+
+  elements.libraryPanel.style.minHeight = "";
+  elements.affirmationList.style.height = "";
+  elements.affirmationList.style.maxHeight = "";
+}
+
+function syncLibraryRailSizing() {
+  if (!elements.workspace || !elements.workspaceStack || !elements.libraryPanel || !elements.affirmationList) {
+    return;
+  }
+
+  clearLibraryRailSizing();
+
+  if (elements.appShell.hidden) {
+    return;
+  }
+
+  if (typeof window.matchMedia === "function" && !window.matchMedia("(min-width: 1121px)").matches) {
+    return;
+  }
+
+  const stackHeight = Math.ceil(elements.workspaceStack.getBoundingClientRect().height);
+  if (!Number.isFinite(stackHeight) || stackHeight <= 0) {
+    return;
+  }
+
+  const libraryPanelStyles = window.getComputedStyle(elements.libraryPanel);
+  const paddingTop = parseFloat(libraryPanelStyles.paddingTop) || 0;
+  const paddingBottom = parseFloat(libraryPanelStyles.paddingBottom) || 0;
+  const rowGap = parseFloat(libraryPanelStyles.rowGap || libraryPanelStyles.gap) || 0;
+  const sectionHeadHeight = elements.librarySectionHead?.getBoundingClientRect().height || 0;
+  const listMetaHeight = elements.libraryMeta?.getBoundingClientRect().height || 0;
+  const availableListHeight = Math.max(
+    240,
+    Math.floor(stackHeight - paddingTop - paddingBottom - sectionHeadHeight - listMetaHeight - (rowGap * 2)),
+  );
+
+  elements.libraryPanel.style.minHeight = `${stackHeight}px`;
+  elements.affirmationList.style.height = `${availableListHeight}px`;
+  elements.affirmationList.style.maxHeight = `${availableListHeight}px`;
+}
+
+function scheduleLibraryRailFit() {
+  if (typeof window.requestAnimationFrame !== "function") {
+    syncLibraryRailSizing();
+    return;
+  }
+
+  if (libraryRailFitFrame) {
+    window.cancelAnimationFrame(libraryRailFitFrame);
+  }
+
+  libraryRailFitFrame = window.requestAnimationFrame(() => {
+    libraryRailFitFrame = 0;
+    syncLibraryRailSizing();
   });
 }
 
@@ -797,6 +865,7 @@ function renderEditorState() {
 
   elements.saveAffirmationButton.disabled = false;
   elements.saveAffirmationButton.textContent = getEditorIdleSaveLabel();
+  scheduleLibraryRailFit();
 }
 
 function getThemes() {
@@ -1121,6 +1190,7 @@ function renderRandomThemePills(target, selectedThemes, onToggle) {
 function showLogin() {
   elements.loginPanel.hidden = false;
   elements.appShell.hidden = true;
+  clearLibraryRailSizing();
   if (elements.startDisplayTop) {
     elements.startDisplayTop.hidden = true;
   }
@@ -1301,6 +1371,7 @@ function renderLibrary() {
 
   if (!rows.length) {
     elements.affirmationList.innerHTML = `<div class="empty">${escapeHtml(getEmptyAffirmationsMessage())}</div>`;
+    scheduleLibraryRailFit();
     return;
   }
 
@@ -1317,6 +1388,7 @@ function renderLibrary() {
       </footer>
     </article>
   `).join("");
+  scheduleLibraryRailFit();
 }
 
 function renderControls() {
@@ -2362,6 +2434,8 @@ window.addEventListener("resize", () => {
   if (!elements.displayMode.hidden) {
     scheduleDisplayFit();
   }
+
+  scheduleLibraryRailFit();
 });
 
 db.auth.onAuthStateChange((event) => {

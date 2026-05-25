@@ -225,7 +225,6 @@
       --plate-shadow: rgba(126, 226, 168, 0.18);
       --plate-wash: rgba(78, 142, 114, 0.08);
       --plate-glow: rgba(130, 208, 173, 0.16);
-      min-height: 0;
     }
 
     .panel-display h2,
@@ -266,7 +265,6 @@
       grid-template-columns: minmax(300px, 0.95fr) minmax(0, 1.05fr);
       gap: 18px;
       margin-top: 18px;
-      align-items: stretch;
     }
 
     .stack {
@@ -536,17 +534,6 @@
       max-height: 720px;
       overflow: auto;
       padding-right: 4px;
-    }
-
-    @media (min-width: 1121px) {
-      .panel-library {
-        grid-template-rows: auto auto minmax(0, 1fr);
-      }
-
-      .affirmation-list {
-        min-height: 0;
-        max-height: none;
-      }
     }
 
     .affirmation-list::-webkit-scrollbar {
@@ -1210,6 +1197,6 @@
   </section>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script type="module" src="./assets/js/brajesh-affirmations.js?v=20260525b"></script>
+  <script type="module" src="./assets/js/brajesh-affirmations.js?v=20260525c"></script>
 </body>
 </html>
