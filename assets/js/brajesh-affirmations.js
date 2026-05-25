@@ -159,6 +159,7 @@ const state = {
   affirmations: [],
   themes: DEFAULT_THEME_DEFINITIONS.map((theme) => ({ ...theme })),
   selectedTheme: "random",
+  librarySearchQuery: "",
   editorTheme: "personal",
   randomThemeSelection: null,
   randomThemeSelectionCustomized: false,
@@ -211,6 +212,7 @@ const elements = {
   libraryPanel: document.querySelector("#appShell .panel-library"),
   librarySectionHead: document.querySelector("#appShell .panel-library .section-head"),
   libraryMeta: document.querySelector("#appShell .panel-library .list-meta"),
+  librarySearchInput: document.querySelector("#librarySearchInput"),
   affirmationList: document.querySelector("#affirmationList"),
   themeFilterBar: document.querySelector("#themeFilterBar"),
   randomThemePicker: document.querySelector("#randomThemePicker"),
@@ -403,6 +405,10 @@ function setCSVStatus(text, tone = "") {
 
 function setThemeManagerStatus(text, tone = "") {
   setStatusElement(elements.themeManagerStatus, text, tone);
+}
+
+function normalizeLibrarySearchQuery(value) {
+  return String(value || "").trim().toLowerCase();
 }
 
 function titleCase(value) {
@@ -916,7 +922,18 @@ function getRandomThemeSummary() {
   return `Random will use: ${selectedThemes.map((theme) => getThemeLabel(theme)).join(", ")}`;
 }
 
-function getEmptyAffirmationsMessage(theme = state.selectedTheme) {
+function getEmptyAffirmationsMessage(theme = state.selectedTheme, options = {}) {
+  const rawSearchQuery = String(
+    Object.prototype.hasOwnProperty.call(options, "searchQuery")
+      ? options.searchQuery
+      : state.librarySearchQuery,
+  ).trim();
+  const searchQuery = normalizeLibrarySearchQuery(rawSearchQuery);
+
+  if (searchQuery) {
+    return `No affirmations match “${rawSearchQuery}”.`;
+  }
+
   if (theme !== "random") {
     return "No affirmations in this theme yet.";
   }
@@ -939,6 +956,15 @@ function getFilteredAffirmations(theme = state.selectedTheme) {
   }
 
   return state.affirmations.filter((item) => item.theme === theme);
+}
+
+function getLibraryAffirmations() {
+  const searchQuery = normalizeLibrarySearchQuery(state.librarySearchQuery);
+  if (!searchQuery) {
+    return getFilteredAffirmations();
+  }
+
+  return state.affirmations.filter((item) => String(item.body || "").toLowerCase().includes(searchQuery));
 }
 
 function getDisplayAffirmations(theme = state.selectedTheme) {
@@ -1354,11 +1380,19 @@ function syncPageStateAfterLoad() {
 }
 
 function renderLibrary() {
-  const rows = getFilteredAffirmations();
+  const rows = getLibraryAffirmations();
+  const previewRows = getFilteredAffirmations();
+  const searchQuery = normalizeLibrarySearchQuery(state.librarySearchQuery);
+
+  if (elements.librarySearchInput && elements.librarySearchInput.value !== state.librarySearchQuery) {
+    elements.librarySearchInput.value = state.librarySearchQuery;
+  }
 
   elements.selectedThemeBadge.textContent = `Selected: ${getThemeLabel(state.selectedTheme)}`;
   elements.themeSummary.textContent = getThemeSummary();
-  elements.libraryThemeMessage.textContent = `Filter: ${getThemeLabel(state.selectedTheme)}`;
+  elements.libraryThemeMessage.textContent = searchQuery
+    ? `Search: all themes for “${state.librarySearchQuery.trim()}”`
+    : `Filter: ${getThemeLabel(state.selectedTheme)}`;
   elements.libraryCountBadge.textContent = `${rows.length} ${rows.length === 1 ? "item" : "items"}`;
 
   if (elements.previewThemeBadge) {
@@ -1366,11 +1400,11 @@ function renderLibrary() {
   }
 
   if (elements.previewQuote) {
-    elements.previewQuote.textContent = rows[0]?.body || getEmptyAffirmationsMessage();
+    elements.previewQuote.textContent = previewRows[0]?.body || getEmptyAffirmationsMessage(state.selectedTheme, { searchQuery: "" });
   }
 
   if (!rows.length) {
-    elements.affirmationList.innerHTML = `<div class="empty">${escapeHtml(getEmptyAffirmationsMessage())}</div>`;
+    elements.affirmationList.innerHTML = `<div class="empty">${escapeHtml(getEmptyAffirmationsMessage(state.selectedTheme, { searchQuery }))}</div>`;
     scheduleLibraryRailFit();
     return;
   }
@@ -2206,6 +2240,13 @@ elements.themeSelect.addEventListener("change", (event) => {
 
   rememberEditorTheme(event.currentTarget.value);
 });
+
+if (elements.librarySearchInput) {
+  elements.librarySearchInput.addEventListener("input", (event) => {
+    state.librarySearchQuery = String(event.currentTarget.value || "");
+    renderLibrary();
+  });
+}
 
 if (elements.themeManagerSelect) {
   elements.themeManagerSelect.addEventListener("change", () => {

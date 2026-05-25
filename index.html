@@ -535,6 +535,14 @@
       justify-content: space-between;
     }
 
+    .library-search {
+      flex: 1 1 100%;
+    }
+
+    .library-search input {
+      width: 100%;
+    }
+
     .affirmation-list {
       display: grid;
       gap: 12px;
@@ -1160,6 +1168,10 @@
         </div>
 
         <div class="list-meta">
+          <label class="library-search">
+            <span class="screen-reader">Search all affirmations</span>
+            <input id="librarySearchInput" type="search" placeholder="Search all affirmations">
+          </label>
           <div class="helper" id="libraryThemeMessage">Filter: Random</div>
           <div class="helper">Edit loads an item into the form. Display starts a shuffled fullscreen session for that theme.</div>
         </div>
@@ -1206,6 +1218,6 @@
   </section>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script type="module" src="./assets/js/brajesh-affirmations.js?v=20260525c"></script>
+  <script type="module" src="./assets/js/brajesh-affirmations.js?v=20260525d"></script>
 </body>
 </html>
