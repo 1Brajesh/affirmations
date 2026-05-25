@@ -6,7 +6,16 @@ import {
 } from "./brajesh-auth.js";
 
 const db = createBrajeshClient();
-const BUILTIN_THEMES = ["long"];
+const DEFAULT_THEME_DEFINITIONS = [
+  { slug: "personal", displayName: "Personal", isReserved: false, sortOrder: 10 },
+  { slug: "relationships", displayName: "Relationships", isReserved: false, sortOrder: 20 },
+  { slug: "work", displayName: "Work", isReserved: false, sortOrder: 30 },
+  { slug: "health", displayName: "Health", isReserved: false, sortOrder: 40 },
+  { slug: "long", displayName: "Long", isReserved: true, sortOrder: 900 },
+];
+const BUILTIN_THEMES = DEFAULT_THEME_DEFINITIONS
+  .filter((theme) => theme.isReserved)
+  .map((theme) => theme.slug);
 const LEGACY_RANDOM_THEME_SELECTION_THEME_PREFIX = "zz-random-theme-selection-pref-";
 const DISPLAY_SKINS = [
   {
@@ -148,6 +157,7 @@ const FILLED_DISPLAY_MOTIFS = new Set(["flower"]);
 const state = {
   user: null,
   affirmations: [],
+  themes: DEFAULT_THEME_DEFINITIONS.map((theme) => ({ ...theme })),
   selectedTheme: "random",
   editorTheme: "personal",
   randomThemeSelection: null,
@@ -186,6 +196,12 @@ const elements = {
   editorBodyLabel: document.querySelector("#editorBodyLabel"),
   editorBodyHint: document.querySelector("#editorBodyHint"),
   themeSelect: document.querySelector("#affirmationForm select[name='theme']"),
+  themeManagerForm: document.querySelector("#themeManagerForm"),
+  themeManagerSelect: document.querySelector("#themeManagerTheme"),
+  themeManagerNameInput: document.querySelector("#themeManagerDisplayName"),
+  themeManagerSlug: document.querySelector("#themeManagerSlug"),
+  themeManagerButton: document.querySelector("#themeManagerButton"),
+  themeManagerStatus: document.querySelector("#themeManagerStatus"),
   csvFileInput: document.querySelector("#csvFileInput"),
   importCsvButton: document.querySelector("#importCsvButton"),
   exportCsvButton: document.querySelector("#exportCsvButton"),
@@ -317,6 +333,10 @@ function setCSVStatus(text, tone = "") {
   setStatusElement(elements.csvStatus, text, tone);
 }
 
+function setThemeManagerStatus(text, tone = "") {
+  setStatusElement(elements.themeManagerStatus, text, tone);
+}
+
 function titleCase(value) {
   return String(value)
     .split(/[\s_-]+/)
@@ -333,8 +353,108 @@ function slugify(value) {
     .replace(/^-+|-+$/g, "");
 }
 
+function normalizeThemeDisplayName(value) {
+  return String(value || "")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function createThemeRecord(value) {
+  const slug = slugify(value?.slug || value?.display_name || value?.displayName);
+
+  if (!slug || slug === "random") {
+    return null;
+  }
+
+  const defaultDefinition = DEFAULT_THEME_DEFINITIONS.find((theme) => theme.slug === slug);
+  return {
+    id: value?.id || null,
+    slug,
+    displayName: normalizeThemeDisplayName(value?.display_name || value?.displayName)
+      || defaultDefinition?.displayName
+      || titleCase(slug),
+    isReserved: Boolean(value?.is_reserved ?? value?.isReserved ?? defaultDefinition?.isReserved),
+    sortOrder: Number(value?.sort_order ?? value?.sortOrder ?? defaultDefinition?.sortOrder ?? 500),
+    updatedAt: value?.updated_at || value?.updatedAt || null,
+  };
+}
+
+function compareThemeRecords(left, right) {
+  const leftOrder = Number(left?.sortOrder ?? 500);
+  const rightOrder = Number(right?.sortOrder ?? 500);
+
+  if (leftOrder !== rightOrder) {
+    return leftOrder - rightOrder;
+  }
+
+  const labelCompare = String(left?.displayName || left?.slug || "").localeCompare(String(right?.displayName || right?.slug || ""));
+  if (labelCompare !== 0) {
+    return labelCompare;
+  }
+
+  return String(left?.slug || "").localeCompare(String(right?.slug || ""));
+}
+
+function mergeThemeRecords(...collections) {
+  const bySlug = new Map();
+
+  collections.flat().forEach((item) => {
+    const record = createThemeRecord(item);
+    if (!record) return;
+
+    const existing = bySlug.get(record.slug);
+    if (!existing) {
+      bySlug.set(record.slug, record);
+      return;
+    }
+
+    bySlug.set(record.slug, {
+      ...existing,
+      ...record,
+      id: record.id || existing.id,
+      displayName: record.displayName || existing.displayName,
+      isReserved: Boolean(record.isReserved || existing.isReserved),
+      sortOrder: Number.isFinite(record.sortOrder) ? record.sortOrder : existing.sortOrder,
+      updatedAt: record.updatedAt || existing.updatedAt,
+    });
+  });
+
+  return [...bySlug.values()].sort(compareThemeRecords);
+}
+
+function getThemeRecordBySlug(slug) {
+  const cleanSlug = slugify(slug);
+  return state.themes.find((theme) => theme.slug === cleanSlug) || null;
+}
+
+function getThemeRecordById(id) {
+  return state.themes.find((theme) => theme.id === id) || null;
+}
+
+function getThemeRecordByDisplayName(displayName) {
+  const normalizedDisplayName = normalizeThemeDisplayName(displayName).toLowerCase();
+  return state.themes.find((theme) => theme.displayName.toLowerCase() === normalizedDisplayName) || null;
+}
+
+function getRenamableThemes() {
+  return state.themes.filter((theme) => !theme.isReserved);
+}
+
+function resolveThemeSlug(value) {
+  const existingTheme = getThemeRecordBySlug(value) || getThemeRecordByDisplayName(value);
+  return existingTheme?.slug || slugify(value);
+}
+
 function getThemeLabel(theme) {
-  return theme === "random" ? "Random" : titleCase(theme);
+  if (theme === "random") {
+    return "Random";
+  }
+
+  if (typeof theme === "object" && theme?.displayName) {
+    return theme.displayName;
+  }
+
+  return getThemeRecordBySlug(theme)?.displayName || titleCase(theme);
 }
 
 function rememberEditorTheme(theme) {
@@ -489,13 +609,70 @@ function normalizeAffirmationFingerprint(value) {
 
 function buildAffirmationPayload(body, theme) {
   const cleanBody = cleanAffirmationBody(body);
-  const cleanTheme = slugify(theme);
+  const cleanTheme = resolveThemeSlug(theme);
+  const themeRecord = getThemeRecordBySlug(cleanTheme);
 
   return {
     body: cleanBody,
     theme: cleanTheme,
+    theme_id: themeRecord?.id || null,
     body_normalized: normalizeAffirmationFingerprint(cleanBody),
   };
+}
+
+function getOrderedThemeSlugs(themeSlugs) {
+  return [...new Set(themeSlugs.map(slugify).filter(Boolean))]
+    .sort((left, right) => compareThemeRecords(
+      getThemeRecordBySlug(left) || { slug: left, displayName: titleCase(left), sortOrder: 500 },
+      getThemeRecordBySlug(right) || { slug: right, displayName: titleCase(right), sortOrder: 500 },
+    ));
+}
+
+async function ensureThemeExists(themeName) {
+  const existingTheme = getThemeRecordBySlug(themeName) || getThemeRecordByDisplayName(themeName);
+  if (existingTheme) {
+    return existingTheme;
+  }
+
+  const slug = slugify(themeName);
+  const displayName = normalizeThemeDisplayName(themeName);
+
+  if (!slug) {
+    return null;
+  }
+
+  if (slug === "random") {
+    throw new Error("Random is a display mode and cannot be saved as a theme.");
+  }
+
+  const { data, error } = await db
+    .from("brajesh_themes")
+    .insert({
+      slug,
+      display_name: displayName || titleCase(slug),
+    })
+    .select("id, slug, display_name, is_reserved, sort_order, updated_at")
+    .single();
+
+  if (error) {
+    if (error.code === "23505") {
+      await loadAffirmations({ silent: true });
+      const resolvedTheme = getThemeRecordBySlug(slug) || getThemeRecordByDisplayName(themeName);
+      if (resolvedTheme) {
+        return resolvedTheme;
+      }
+
+      const conflictError = new Error("That theme name is already in use.");
+      conflictError.code = "theme_name_conflict";
+      throw conflictError;
+    }
+
+    throw error;
+  }
+
+  const themeRecord = createThemeRecord(data);
+  state.themes = mergeThemeRecords(state.themes, [themeRecord]);
+  return themeRecord;
 }
 
 function getAffirmationKey(item) {
@@ -568,6 +745,7 @@ function renderEditorModePills() {
 
 function renderEditorState() {
   renderThemeOptions();
+  renderThemeManager();
   renderEditorModePills();
 
   const isEditing = Boolean(state.editingId);
@@ -593,7 +771,7 @@ function renderEditorState() {
   if (elements.editorBodyHint) {
     elements.editorBodyHint.innerHTML = isMultiAdd
       ? 'Use <code>//</code> to separate affirmations. Line breaks inside each affirmation are preserved.'
-      : 'Choose <code>long</code> for multi-line pieces. In display mode, long affirmations reveal one line per tap.';
+      : 'Choose the <code>Long</code> theme for multi-line pieces. In display mode, long affirmations reveal one line per tap.';
   }
 
   if (elements.form?.elements.body) {
@@ -607,7 +785,7 @@ function renderEditorState() {
 }
 
 function getThemes() {
-  const themes = [...new Set([...BUILTIN_THEMES, ...state.affirmations.map((item) => item.theme)])].sort();
+  const themes = getOrderedThemeSlugs([...BUILTIN_THEMES, ...state.affirmations.map((item) => item.theme)]);
   return ["random", ...themes];
 }
 
@@ -651,7 +829,7 @@ function getRandomThemeSummary() {
     return "Pick at least one short theme for Random.";
   }
 
-  return `Random will use: ${selectedThemes.map(titleCase).join(", ")}`;
+  return `Random will use: ${selectedThemes.map((theme) => getThemeLabel(theme)).join(", ")}`;
 }
 
 function getEmptyAffirmationsMessage(theme = state.selectedTheme) {
@@ -700,7 +878,7 @@ function getThemeSummary(theme = state.selectedTheme) {
     return "Showing long affirmations one line at a time with progress.";
   }
 
-  return `Showing affirmations tagged “${titleCase(theme)}”.`;
+  return `Showing affirmations tagged “${getThemeLabel(theme)}”.`;
 }
 
 function getAffirmationById(id) {
@@ -826,14 +1004,17 @@ function getWrappedDisplayIndex(index) {
   return ((index % total) + total) % total;
 }
 
+function getEditorThemeSlugs() {
+  return getOrderedThemeSlugs(state.themes.map((theme) => theme.slug));
+}
+
 function renderThemeOptions() {
-  const themes = getThemes().filter((theme) => theme !== "random");
-  const availableThemes = [...new Set(["personal", ...themes])];
+  const availableThemes = getEditorThemeSlugs();
   const currentValue = slugify(elements.themeSelect.value);
   const preferredTheme = state.editingId ? currentValue : slugify(state.editorTheme);
 
   elements.themeSelect.innerHTML = availableThemes.map((theme) => `
-    <option value="${theme}">${titleCase(theme)}</option>
+    <option value="${theme}">${escapeHtml(getThemeLabel(theme))}</option>
   `).join("");
 
   if (availableThemes.includes(preferredTheme)) {
@@ -852,6 +1033,41 @@ function renderThemeOptions() {
   rememberEditorTheme(availableThemes[0]);
 }
 
+function renderThemeManager() {
+  if (!elements.themeManagerForm || !elements.themeManagerSelect || !elements.themeManagerNameInput) {
+    return;
+  }
+
+  const themes = getRenamableThemes();
+  const currentValue = slugify(elements.themeManagerSelect.value);
+  const selectedTheme = themes.find((theme) => theme.slug === currentValue)
+    || themes.find((theme) => theme.slug === state.selectedTheme)
+    || themes[0]
+    || null;
+
+  elements.themeManagerSelect.innerHTML = themes.map((theme) => `
+    <option value="${theme.slug}">${escapeHtml(theme.displayName)}</option>
+  `).join("");
+
+  if (!selectedTheme) {
+    elements.themeManagerSelect.disabled = true;
+    elements.themeManagerNameInput.disabled = true;
+    elements.themeManagerButton.disabled = true;
+    elements.themeManagerButton.textContent = "Rename Theme";
+    elements.themeManagerSlug.textContent = "No editable themes available.";
+    elements.themeManagerNameInput.value = "";
+    return;
+  }
+
+  elements.themeManagerSelect.disabled = false;
+  elements.themeManagerNameInput.disabled = false;
+  elements.themeManagerButton.disabled = false;
+  elements.themeManagerButton.textContent = "Rename Theme";
+  elements.themeManagerSelect.value = selectedTheme.slug;
+  elements.themeManagerNameInput.value = selectedTheme.displayName;
+  elements.themeManagerSlug.textContent = `Slug: ${selectedTheme.slug}`;
+}
+
 function renderThemePills(target, currentTheme, onSelect) {
   const themes = getThemes();
 
@@ -861,7 +1077,7 @@ function renderThemePills(target, currentTheme, onSelect) {
       type="button"
       data-theme="${theme}"
       aria-pressed="${String(theme === currentTheme)}"
-    >${getThemeLabel(theme)}</button>
+    >${escapeHtml(getThemeLabel(theme))}</button>
   `).join("");
 
   target.querySelectorAll("[data-theme]").forEach((button) => {
@@ -879,7 +1095,7 @@ function renderRandomThemePills(target, selectedThemes, onToggle) {
       type="button"
       data-random-theme="${theme}"
       aria-pressed="${String(selectedSet.has(theme))}"
-    >${getThemeLabel(theme)}</button>
+    >${escapeHtml(getThemeLabel(theme))}</button>
   `).join("");
 
   target.querySelectorAll("[data-random-theme]").forEach((button) => {
@@ -939,6 +1155,17 @@ function setImportExportBusy(isBusy) {
   elements.exportCsvButton.disabled = isBusy;
 }
 
+function setThemeManagerBusy(isBusy) {
+  if (!elements.themeManagerForm) {
+    return;
+  }
+
+  elements.themeManagerSelect.disabled = isBusy;
+  elements.themeManagerNameInput.disabled = isBusy;
+  elements.themeManagerButton.disabled = isBusy;
+  elements.themeManagerButton.textContent = isBusy ? "Renaming..." : "Rename Theme";
+}
+
 function resetEditor(options = {}) {
   state.editingId = null;
   elements.form.reset();
@@ -965,7 +1192,7 @@ function loadAffirmationIntoEditor(affirmationId) {
   renderEditorState();
   elements.form.elements.theme.value = record.theme;
   elements.form.elements.newTheme.value = "";
-  setEditorStatus(`Loaded ${titleCase(record.theme)} affirmation for editing.`, "ok");
+  setEditorStatus(`Loaded ${getThemeLabel(record.theme)} affirmation for editing.`, "ok");
   elements.form.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -1015,7 +1242,7 @@ async function saveMultiAffirmations(text, targetTheme) {
   return {
     added,
     duplicates,
-    theme: payloads[0]?.theme || slugify(targetTheme),
+    theme: payloads[0]?.theme || resolveThemeSlug(targetTheme),
   };
 }
 
@@ -1066,7 +1293,7 @@ function renderLibrary() {
     <article class="affirmation-card">
       <blockquote>${escapeHtml(item.body)}</blockquote>
       <footer>
-        <span class="badge">${titleCase(item.theme)}</span>
+        <span class="badge">${escapeHtml(getThemeLabel(item.theme))}</span>
         <span class="card-actions">
           <button type="button" data-action="display-affirmation" data-id="${item.id}">Display</button>
           <button type="button" data-action="edit-affirmation" data-id="${item.id}">Edit</button>
@@ -1136,6 +1363,24 @@ function renderControls() {
   }
 }
 
+function compareAffirmations(left, right) {
+  const themeCompare = compareThemeRecords(
+    getThemeRecordBySlug(left.theme) || { slug: left.theme, displayName: getThemeLabel(left.theme), sortOrder: 500 },
+    getThemeRecordBySlug(right.theme) || { slug: right.theme, displayName: getThemeLabel(right.theme), sortOrder: 500 },
+  );
+
+  if (themeCompare !== 0) {
+    return themeCompare;
+  }
+
+  const createdCompare = String(left.created_at || "").localeCompare(String(right.created_at || ""));
+  if (createdCompare !== 0) {
+    return createdCompare;
+  }
+
+  return String(left.body || "").localeCompare(String(right.body || ""));
+}
+
 async function loadAffirmations(options = {}) {
   if (!options.silent) {
     setPageStatus("Loading affirmations.");
@@ -1143,13 +1388,19 @@ async function loadAffirmations(options = {}) {
 
   const [
     { data: affirmationRows, error: affirmationsError },
+    { data: themeRows, error: themesError },
     { data: preferenceRow, error: preferenceError },
   ] = await Promise.all([
     db
       .from("brajesh_affirmations")
-      .select("id, theme, body, body_normalized, created_at, updated_at")
+      .select("id, theme_id, theme, body, body_normalized, created_at, updated_at")
       .order("theme", { ascending: true })
       .order("created_at", { ascending: true }),
+    db
+      .from("brajesh_themes")
+      .select("id, slug, display_name, is_reserved, sort_order, updated_at")
+      .order("sort_order", { ascending: true })
+      .order("display_name", { ascending: true }),
     db
       .from("brajesh_user_preferences")
       .select("user_id, random_theme_selection, random_theme_selection_customized, updated_at")
@@ -1161,6 +1412,10 @@ async function loadAffirmations(options = {}) {
     throw affirmationsError;
   }
 
+  if (themesError) {
+    throw themesError;
+  }
+
   if (preferenceError) {
     throw preferenceError;
   }
@@ -1170,7 +1425,20 @@ async function loadAffirmations(options = {}) {
     applyRandomThemeSelectionPreference(preferenceRow);
   }
 
-  state.affirmations = (affirmationRows || []).filter((item) => !isLegacyRandomThemeSelectionPreferenceTheme(item.theme));
+  const visibleAffirmations = (affirmationRows || []).filter((item) => !isLegacyRandomThemeSelectionPreferenceTheme(item.theme));
+  state.themes = mergeThemeRecords(
+    DEFAULT_THEME_DEFINITIONS,
+    (themeRows || []).filter((theme) => !isLegacyRandomThemeSelectionPreferenceTheme(theme.slug)),
+    visibleAffirmations.map((item) => ({ id: item.theme_id || null, slug: item.theme })),
+    (preferenceRow?.random_theme_selection || []).map((theme) => ({ slug: theme })),
+  );
+  state.affirmations = visibleAffirmations
+    .map((item) => ({
+      ...item,
+      theme: resolveThemeSlug(item.theme || getThemeRecordById(item.theme_id)?.slug || ""),
+      theme_id: item.theme_id || getThemeRecordBySlug(item.theme)?.id || null,
+    }))
+    .sort(compareAffirmations);
   showApp();
   syncPageStateAfterLoad();
   if (!options.silent) {
@@ -1190,6 +1458,7 @@ async function loadPage(options = {}) {
 
     if (!user) {
       state.affirmations = [];
+      state.themes = mergeThemeRecords(DEFAULT_THEME_DEFINITIONS);
       resetRandomThemeSelectionPreference();
       resetEditor();
       showLogin();
@@ -1201,6 +1470,7 @@ async function loadPage(options = {}) {
 
     if (!isAdmin) {
       state.affirmations = [];
+      state.themes = mergeThemeRecords(DEFAULT_THEME_DEFINITIONS);
       resetRandomThemeSelectionPreference();
       resetEditor();
       showLogin();
@@ -1307,7 +1577,7 @@ function resolveCSVColumns(rows) {
 
   const headers = rows[0].map((value) => String(value || "").trim().toLowerCase());
   const bodyIndex = headers.findIndex((value) => ["affirmation", "body", "text", "quote"].includes(value));
-  const themeIndex = headers.findIndex((value) => ["theme", "tag", "category"].includes(value));
+  const themeIndex = headers.findIndex((value) => ["theme", "theme_slug", "theme_label", "tag", "category"].includes(value));
 
   if (bodyIndex !== -1 && themeIndex !== -1) {
     return {
@@ -1395,15 +1665,11 @@ async function importCSVText(text, filename = "CSV") {
 }
 
 function exportCSV() {
-  const rows = [...state.affirmations].sort((left, right) => {
-    const themeCompare = left.theme.localeCompare(right.theme);
-    if (themeCompare !== 0) return themeCompare;
-    return left.body.localeCompare(right.body);
-  });
+  const rows = [...state.affirmations].sort(compareAffirmations);
 
   const csv = [
-    ["affirmation", "theme"],
-    ...rows.map((item) => [item.body, item.theme]),
+    ["affirmation", "theme", "theme_label"],
+    ...rows.map((item) => [item.body, item.theme, getThemeLabel(item.theme)]),
   ].map((row) => row.map(escapeCSVField).join(",")).join("\r\n");
 
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -1727,6 +1993,7 @@ async function handleSignOut(successMessage = "Signed out.") {
 
   state.user = null;
   state.affirmations = [];
+  state.themes = mergeThemeRecords(DEFAULT_THEME_DEFINITIONS);
   resetRandomThemeSelectionPreference();
   state.displayQueue = [];
   state.displayIndex = -1;
@@ -1769,18 +2036,23 @@ elements.form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const data = new FormData(event.currentTarget);
   const existingTheme = String(data.get("theme") || "").trim();
-  const newTheme = slugify(data.get("newTheme") || "");
+  const newTheme = normalizeThemeDisplayName(data.get("newTheme") || "");
   const targetTheme = newTheme || existingTheme;
-  const payload = buildAffirmationPayload(data.get("body"), targetTheme);
-
-  if (!payload.body || !payload.theme) {
-    setEditorStatus("Add both an affirmation and a valid theme before saving.", "error");
-    return;
-  }
 
   setSaveButtonBusy(true);
 
   try {
+    if (newTheme) {
+      await ensureThemeExists(newTheme);
+    }
+
+    const payload = buildAffirmationPayload(data.get("body"), targetTheme);
+
+    if (!payload.body || !payload.theme) {
+      setEditorStatus("Add both an affirmation and a valid theme before saving.", "error");
+      return;
+    }
+
     if (state.editingId) {
       const { error } = await db
         .from("brajesh_affirmations")
@@ -1792,7 +2064,7 @@ elements.form.addEventListener("submit", async (event) => {
       setSelectedTheme(payload.theme);
       await loadAffirmations({ silent: true });
       resetEditor({ keepTheme: payload.theme, keepStatus: true });
-      setEditorStatus(`Updated ${titleCase(payload.theme)} affirmation.`, "ok");
+      setEditorStatus(`Updated ${getThemeLabel(payload.theme)} affirmation.`, "ok");
     } else if (state.editorInputMode === "multi") {
       const { added, duplicates, theme } = await saveMultiAffirmations(data.get("body"), targetTheme);
 
@@ -1801,11 +2073,11 @@ elements.form.addEventListener("submit", async (event) => {
       resetEditor({ keepTheme: theme, keepStatus: true });
 
       if (added && duplicates) {
-        setEditorStatus(`Saved ${added} new ${titleCase(theme)} affirmation${added === 1 ? "" : "s"} and skipped ${duplicates} duplicate${duplicates === 1 ? "" : "s"}.`, "ok");
+        setEditorStatus(`Saved ${added} new ${getThemeLabel(theme)} affirmation${added === 1 ? "" : "s"} and skipped ${duplicates} duplicate${duplicates === 1 ? "" : "s"}.`, "ok");
       } else if (added) {
-        setEditorStatus(`Saved ${added} new ${titleCase(theme)} affirmation${added === 1 ? "" : "s"}.`, "ok");
+        setEditorStatus(`Saved ${added} new ${getThemeLabel(theme)} affirmation${added === 1 ? "" : "s"}.`, "ok");
       } else if (duplicates) {
-        setEditorStatus(`Skipped ${duplicates} duplicate ${titleCase(theme)} affirmation${duplicates === 1 ? "" : "s"}.`, "warn");
+        setEditorStatus(`Skipped ${duplicates} duplicate ${getThemeLabel(theme)} affirmation${duplicates === 1 ? "" : "s"}.`, "warn");
       } else {
         setEditorStatus("No affirmations were saved.", "warn");
       }
@@ -1819,10 +2091,12 @@ elements.form.addEventListener("submit", async (event) => {
       setSelectedTheme(payload.theme);
       await loadAffirmations({ silent: true });
       resetEditor({ keepTheme: payload.theme, keepStatus: true });
-      setEditorStatus(`Saved a new ${titleCase(payload.theme)} affirmation.`, "ok");
+      setEditorStatus(`Saved a new ${getThemeLabel(payload.theme)} affirmation.`, "ok");
     }
   } catch (error) {
-    if (error.code === "23505") {
+    if (error.code === "theme_name_conflict") {
+      setEditorStatus(error.message, "warn");
+    } else if (error.code === "23505") {
       setEditorStatus("That affirmation already exists in this theme.", "warn");
     } else {
       setEditorStatus(error.message || "Could not save that affirmation.", "error");
@@ -1845,6 +2119,67 @@ elements.themeSelect.addEventListener("change", (event) => {
 
   rememberEditorTheme(event.currentTarget.value);
 });
+
+if (elements.themeManagerSelect) {
+  elements.themeManagerSelect.addEventListener("change", () => {
+    renderThemeManager();
+  });
+}
+
+if (elements.themeManagerForm) {
+  elements.themeManagerForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const selectedTheme = getThemeRecordBySlug(elements.themeManagerSelect.value);
+    const nextDisplayName = normalizeThemeDisplayName(elements.themeManagerNameInput.value);
+
+    if (!selectedTheme?.id) {
+      setThemeManagerStatus("Choose a valid theme before renaming it.", "error");
+      return;
+    }
+
+    if (selectedTheme.isReserved) {
+      setThemeManagerStatus("Reserved themes cannot be renamed here.", "warn");
+      return;
+    }
+
+    if (!nextDisplayName) {
+      setThemeManagerStatus("Enter a display name for the selected theme.", "error");
+      return;
+    }
+
+    if (nextDisplayName === selectedTheme.displayName) {
+      setThemeManagerStatus("That theme already has this display name.", "warn");
+      return;
+    }
+
+    setThemeManagerBusy(true);
+
+    try {
+      const previousDisplayName = selectedTheme.displayName;
+      const { error } = await db
+        .from("brajesh_themes")
+        .update({ display_name: nextDisplayName })
+        .eq("id", selectedTheme.id);
+
+      if (error) {
+        throw error;
+      }
+
+      await loadAffirmations({ silent: true });
+      elements.themeManagerSelect.value = selectedTheme.slug;
+      renderThemeManager();
+      setThemeManagerStatus(`Renamed ${previousDisplayName} to ${nextDisplayName}.`, "ok");
+    } catch (error) {
+      if (error.code === "23505") {
+        setThemeManagerStatus("Another theme already uses that display name.", "warn");
+      } else {
+        setThemeManagerStatus(error.message || "Could not rename that theme.", "error");
+      }
+    } finally {
+      setThemeManagerBusy(false);
+    }
+  });
+}
 
 elements.cancelEditButton.addEventListener("click", () => {
   resetEditor({ keepTheme: state.selectedTheme !== "random" ? state.selectedTheme : undefined });
@@ -2026,7 +2361,8 @@ db.auth.onAuthStateChange((event) => {
 updateIdentityUI();
 resetEditor({ keepStatus: true });
 setEditorStatus("Add a new affirmation or import a CSV.");
-setCSVStatus("CSV format: first column = affirmation, second column = theme.");
+setThemeManagerStatus("Rename a theme label without changing its internal slug.");
+setCSVStatus("CSV format: first column = affirmation, second column = theme slug.");
 requestPageLoad().finally(() => {
   clearAuthHash();
 });

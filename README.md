@@ -23,6 +23,8 @@ Repo: `https://github.com/1Brajesh/affirmations`
   - shared Supabase auth/session helper copied from the main Brajesh repo
 - `import-template.csv`
   - starter CSV for bulk import
+- `supabase/20260525103000_normalize_brajesh_themes.sql`
+  - normalized themes table, legacy theme sync, and theme display-name support
 - `supabase/20260504123000_add_brajesh_affirmations.sql`
   - affirmations schema, normalization helpers, indexes, and RLS reference
 - `supabase/20260516150000_add_brajesh_user_preferences.sql`
@@ -56,8 +58,18 @@ Repo: `https://github.com/1Brajesh/affirmations`
 - Main columns:
   - `id`
   - `theme`
+  - `theme_id`
   - `body`
   - `body_normalized`
+  - `created_at`
+  - `updated_at`
+- Table: `public.brajesh_themes`
+- Main columns:
+  - `id`
+  - `slug`
+  - `display_name`
+  - `is_reserved`
+  - `sort_order`
   - `created_at`
   - `updated_at`
 - Table: `public.brajesh_user_preferences`
@@ -78,6 +90,7 @@ Repo: `https://github.com/1Brajesh/affirmations`
 - magic-link login panel
 - display setup with theme pills
 - add/edit form
+- theme manager
 - CSV import/export tools
 - affirmation library
 - fullscreen display mode
@@ -86,10 +99,11 @@ Repo: `https://github.com/1Brajesh/affirmations`
 
 - Built-in reserved theme:
   - `long`
+- Theme labels are now editable through `brajesh_themes.display_name`, while the stable internal slug remains the stored theme key used by affirmations and CSV.
 - `Random` display excludes `long`.
 - `Random` theme selections are now stored in `brajesh_user_preferences`, which is the source of truth across devices.
 - Duplicate prevention uses normalized `theme + body`.
-- CSV import accepts `affirmation,theme` or matching header synonyms.
+- CSV import accepts `affirmation,theme` or matching header synonyms; `theme` should be the stable slug.
 - `long` affirmations split by authored line breaks and play one line at a time.
 - Fullscreen order is shuffled once when display mode opens, then kept stable for the rest of the session.
 
@@ -140,7 +154,7 @@ Repo: `https://github.com/1Brajesh/affirmations`
 
 - When affirmations UI changes appear not to register after deploy, check for stale cached JS.
 - The page currently cache-busts the module URL in `index.html`:
-  - `./assets/js/brajesh-affirmations.js?v=20260508c`
+  - `./assets/js/brajesh-affirmations.js?v=20260525a`
 - If future JS changes appear missing in production, bump that query-string version.
 
 ## Useful Starting Point

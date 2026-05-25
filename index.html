@@ -399,6 +399,27 @@
       justify-content: flex-end;
     }
 
+    .theme-manager-form {
+      display: grid;
+      gap: 12px;
+      flex: 1 1 340px;
+      min-width: min(100%, 320px);
+    }
+
+    .theme-manager-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .theme-manager-slug {
+      color: var(--faint);
+      font-size: 0.82rem;
+      letter-spacing: 0.04em;
+    }
+
     .tool-status {
       margin: 0;
       color: var(--faint);
@@ -1060,12 +1081,12 @@
 
               <label>
                 New Theme
-                <input name="newTheme" type="text" placeholder="Optional new tag">
+                <input name="newTheme" type="text" placeholder="Optional new theme name">
               </label>
             </div>
 
             <div class="launch-row">
-              <p id="editorBodyHint">Choose <code>long</code> for multi-line pieces. In display mode, long affirmations reveal one line per tap.</p>
+              <p id="editorBodyHint">Choose the <code>Long</code> theme for multi-line pieces. In display mode, long affirmations reveal one line per tap.</p>
               <span class="button-cluster">
                 <button class="ghost-button" type="button" id="cancelEditButton" hidden>Cancel Edit</button>
                 <button class="primary-button" type="submit" id="saveAffirmationButton">Save Affirmation</button>
@@ -1078,8 +1099,35 @@
           <div class="tool-grid">
             <div class="tool-row">
               <div class="tool-copy">
+                <strong>Theme Manager</strong>
+                <p>Rename the display label for a theme without changing its internal slug or retagging existing affirmations.</p>
+                <p>The slug remains the stable key used by existing affirmations and CSV import/export.</p>
+              </div>
+              <form class="theme-manager-form" id="themeManagerForm">
+                <label>
+                  Theme
+                  <select id="themeManagerTheme" name="theme">
+                    <option value="personal">Personal</option>
+                  </select>
+                </label>
+
+                <label>
+                  Display Name
+                  <input id="themeManagerDisplayName" name="displayName" type="text" placeholder="Updated theme label">
+                </label>
+
+                <div class="theme-manager-meta">
+                  <span class="theme-manager-slug" id="themeManagerSlug">Slug: personal</span>
+                  <button class="ghost-button" type="submit" id="themeManagerButton">Rename Theme</button>
+                </div>
+              </form>
+            </div>
+            <p class="tool-status" id="themeManagerStatus" role="status">Rename a theme label without changing its internal slug.</p>
+
+            <div class="tool-row">
+              <div class="tool-copy">
                 <strong>Bulk CSV</strong>
-                <p>Import a local CSV using the columns <code>affirmation,theme</code>. Duplicate imports are skipped by matching normalized theme + affirmation text.</p>
+                <p>Import a local CSV using the columns <code>affirmation,theme</code>. The <code>theme</code> column should use the stable theme slug. Duplicate imports are skipped by matching normalized theme + affirmation text.</p>
                 <p>Export the full library back to CSV for bulk editing, or start from <a class="text-link" href="./import-template.csv">import-template.csv</a>.</p>
               </div>
               <div class="tool-actions">
@@ -1088,7 +1136,7 @@
                 <button class="ghost-button" type="button" id="exportCsvButton">Export CSV</button>
               </div>
             </div>
-            <p class="tool-status" id="csvStatus" role="status">CSV format: first column = affirmation, second column = theme.</p>
+            <p class="tool-status" id="csvStatus" role="status">CSV format: first column = affirmation, second column = theme slug.</p>
           </div>
         </section>
       </div>
@@ -1149,6 +1197,6 @@
   </section>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script type="module" src="./assets/js/brajesh-affirmations.js?v=20260524a"></script>
+  <script type="module" src="./assets/js/brajesh-affirmations.js?v=20260525a"></script>
 </body>
 </html>
