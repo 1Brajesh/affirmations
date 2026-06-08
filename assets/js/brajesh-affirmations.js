@@ -17,6 +17,11 @@ const BUILTIN_THEMES = DEFAULT_THEME_DEFINITIONS
   .filter((theme) => theme.isReserved)
   .map((theme) => theme.slug);
 const LEGACY_RANDOM_THEME_SELECTION_THEME_PREFIX = "zz-random-theme-selection-pref-";
+const AUTO_DISPLAY_SPLIT_WORD_LIMITS = {
+  mobile: 40,
+  tablet: 80,
+  desktop: 120,
+};
 const DISPLAY_SKINS = [
   {
     id: "sunlit",
@@ -1092,6 +1097,44 @@ function isLongAffirmation(item) {
   return item?.theme === "long";
 }
 
+function getAutoDisplaySplitWordLimit() {
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const narrowestSide = Math.min(viewportWidth || Infinity, viewportHeight || Infinity);
+  const isCoarsePointer = typeof window.matchMedia === "function"
+    && window.matchMedia("(pointer: coarse)").matches;
+
+  if (narrowestSide <= 720) {
+    return AUTO_DISPLAY_SPLIT_WORD_LIMITS.mobile;
+  }
+
+  if (viewportWidth <= 1180 || (isCoarsePointer && viewportWidth <= 1366)) {
+    return AUTO_DISPLAY_SPLIT_WORD_LIMITS.tablet;
+  }
+
+  return AUTO_DISPLAY_SPLIT_WORD_LIMITS.desktop;
+}
+
+function getAutoSplitAffirmationSteps(body) {
+  const wordLimit = getAutoDisplaySplitWordLimit();
+  const words = cleanAffirmationBody(body)
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean);
+
+  if (words.length <= wordLimit) {
+    return [];
+  }
+
+  const chunks = [];
+  for (let index = 0; index < words.length; index += wordLimit) {
+    chunks.push(words.slice(index, index + wordLimit).join(" "));
+  }
+
+  return chunks.map((chunk, index) => `${chunk} (cont ${index + 1}/${chunks.length})`);
+}
+
 function getLongAffirmationSteps(body) {
   const steps = cleanAffirmationBody(body)
     .split("\n")
@@ -1827,10 +1870,18 @@ function syncDisplayControls() {
   }
 
   const currentItem = getCurrentDisplayAffirmation();
+  const currentSequence = state.displaySequence;
   const canSkip = hasSkippableLongSequence();
-  const showLongCounter = Boolean(elements.longDisplayCounter && currentItem && isLongAffirmation(currentItem) && state.displayQueue.length);
+  const showLongCounter = Boolean(elements.longDisplayCounter && currentItem && currentSequence && state.displayQueue.length);
   elements.skipDisplay.hidden = !canSkip;
   elements.skipDisplay.disabled = !canSkip;
+  elements.skipDisplay.setAttribute(
+    "aria-label",
+    currentSequence?.type === "auto" ? "Skip to next affirmation" : "Skip to next long affirmation",
+  );
+  elements.skipDisplay.title = currentSequence?.type === "auto"
+    ? "Skip to next affirmation"
+    : "Skip to next long affirmation";
 
   if (elements.longDisplayCounter) {
     elements.longDisplayCounter.hidden = !showLongCounter;
@@ -1855,17 +1906,18 @@ function updateDisplayProgress(stepIndex, totalSteps, label = "Line", options = 
   elements.displayProgressLabel.textContent = `${label} ${currentStep} of ${totalSteps}.`;
 }
 
-function renderLongSequenceStep(item) {
+function renderDisplaySequenceStep(item) {
   const sequence = state.displaySequence;
 
   if (!item || !sequence) {
     return;
   }
 
-  const line = sequence.steps[sequence.index] || "";
-  elements.displayText.textContent = line;
-  elements.displayAnnouncer.textContent = `Line ${sequence.index + 1} of ${sequence.steps.length}. ${line}`;
-  updateDisplayProgress(sequence.index, sequence.steps.length, "Line", { hideWhenSingle: true });
+  const step = sequence.steps[sequence.index] || "";
+  const stepLabel = sequence.type === "auto" ? "Part" : "Line";
+  elements.displayText.textContent = step;
+  elements.displayAnnouncer.textContent = `${stepLabel} ${sequence.index + 1} of ${sequence.steps.length}. ${step}`;
+  updateDisplayProgress(sequence.index, sequence.steps.length, stepLabel, { hideWhenSingle: true });
   syncDisplayControls();
   scheduleDisplayFit();
 }
@@ -1901,11 +1953,24 @@ function renderDisplayItem(item, options = {}) {
   if (isLongAffirmation(item)) {
     const steps = getLongAffirmationSteps(item.body);
     state.displaySequence = {
+      type: "long",
       itemId: item.id,
       steps,
       index: startAtEnd ? steps.length - 1 : 0,
     };
-    renderLongSequenceStep(item);
+    renderDisplaySequenceStep(item);
+    return;
+  }
+
+  const autoSplitSteps = getAutoSplitAffirmationSteps(item.body);
+  if (autoSplitSteps.length > 1) {
+    state.displaySequence = {
+      type: "auto",
+      itemId: item.id,
+      steps: autoSplitSteps,
+      index: startAtEnd ? autoSplitSteps.length - 1 : 0,
+    };
+    renderDisplaySequenceStep(item);
     return;
   }
 
@@ -2022,7 +2087,7 @@ function fitDisplayText() {
 function showNextAffirmation() {
   if (state.displaySequence && state.displaySequence.index < state.displaySequence.steps.length - 1) {
     state.displaySequence.index += 1;
-    renderLongSequenceStep(getAffirmationById(state.displaySequence.itemId));
+    renderDisplaySequenceStep(getAffirmationById(state.displaySequence.itemId));
     return;
   }
 
@@ -2033,7 +2098,7 @@ function showNextAffirmation() {
 function showPreviousAffirmation() {
   if (state.displaySequence && state.displaySequence.index > 0) {
     state.displaySequence.index -= 1;
-    renderLongSequenceStep(getAffirmationById(state.displaySequence.itemId));
+    renderDisplaySequenceStep(getAffirmationById(state.displaySequence.itemId));
     return;
   }
 
