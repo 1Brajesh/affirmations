@@ -154,7 +154,7 @@ Repo: `https://github.com/1Brajesh/affirmations`
 
 - When affirmations UI changes appear not to register after deploy, check for stale cached JS.
 - The page currently cache-busts the module URL in `index.html`:
-  - `./assets/js/brajesh-affirmations.js?v=20260608a`
+  - `./assets/js/brajesh-affirmations.js?v=20260608b`
 - If future JS changes appear missing in production, bump that query-string version.
 
 ## Useful Starting Point

@@ -1132,7 +1132,11 @@ function getAutoSplitAffirmationSteps(body) {
     chunks.push(words.slice(index, index + wordLimit).join(" "));
   }
 
-  return chunks.map((chunk, index) => `${chunk} (cont ${index + 1}/${chunks.length})`);
+  return chunks.map((chunk, index) => (
+    index < chunks.length - 1
+      ? `${chunk} (cont ${index + 1}/${chunks.length})`
+      : chunk
+  ));
 }
 
 function getLongAffirmationSteps(body) {
